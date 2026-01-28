@@ -32,25 +32,33 @@ async function install() {
   console.log(`Downloading induct for ${target}...`);
 
   try {
-    const archivePath = path.join(binDir, `induct.${ext}`);
+    // Use temp directory to avoid overwriting JS wrapper
+    const tmpDir = path.join(binDir, ".tmp");
+    if (!fs.existsSync(tmpDir)) {
+      fs.mkdirSync(tmpDir);
+    }
+
+    const archivePath = path.join(tmpDir, `induct.${ext}`);
     await download(url, archivePath);
 
     const extractedName = isWindows ? "induct.exe" : "induct";
-    const extractedPath = path.join(binDir, extractedName);
+    const extractedPath = path.join(tmpDir, extractedName);
 
     if (isWindows) {
-      execSync(`powershell -Command "Expand-Archive -Path '${archivePath}' -DestinationPath '${binDir}' -Force"`);
+      execSync(`powershell -Command "Expand-Archive -Path '${archivePath}' -DestinationPath '${tmpDir}' -Force"`);
     } else {
-      execSync(`tar -xzf "${archivePath}" -C "${binDir}"`);
+      execSync(`tar -xzf "${archivePath}" -C "${tmpDir}"`);
     }
 
-    // Rename to induct-bin
+    // Move to bin/induct-bin
     fs.renameSync(extractedPath, binPath);
     if (!isWindows) {
       fs.chmodSync(binPath, 0o755);
     }
 
+    // Cleanup
     fs.unlinkSync(archivePath);
+    fs.rmdirSync(tmpDir);
     console.log("✓ induct installed successfully");
   } catch (err) {
     console.error("Failed to install induct:", err.message);
