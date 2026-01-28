@@ -1,0 +1,6 @@
+name: induct project
+description: Root specification for the induct project
+
+# Include the main test suite
+include:
+  - specs/inductspec.yaml

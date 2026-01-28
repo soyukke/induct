@@ -1,0 +1,7 @@
+name: run with JSON output
+description: Tests JSON output format
+
+test:
+  command: ./zig-out/bin/induct run --json specs/examples/echo.yaml
+  expect_output_contains: '"passed":'
+  expect_exit_code: 0

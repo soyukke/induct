@@ -1,0 +1,7 @@
+name: run with verbose output
+description: Tests verbose output flag
+
+test:
+  command: ./zig-out/bin/induct run -v specs/examples/echo.yaml
+  expect_output_contains: "Output:"
+  expect_exit_code: 0

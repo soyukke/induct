@@ -1,0 +1,13 @@
+name: run failing spec
+description: Tests running a spec that fails due to output mismatch
+
+setup:
+  - run: printf 'name: temp test\ntest:\n  command: echo wrong\n  expect_output: "hello\\n"\n' > /tmp/induct-fail-test.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-fail-test.yaml
+  expect_output_contains: "[FAIL]"
+  expect_exit_code: 1
+
+teardown:
+  - run: rm -f /tmp/induct-fail-test.yaml

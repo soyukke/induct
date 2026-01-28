@@ -1,0 +1,13 @@
+name: file create and read
+description: Tests file creation with setup and teardown
+
+setup:
+  - run: echo "test content" > /tmp/induct-test.txt
+
+test:
+  command: cat /tmp/induct-test.txt
+  expect_output_contains: "test content"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-test.txt

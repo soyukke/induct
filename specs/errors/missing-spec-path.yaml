@@ -1,0 +1,7 @@
+name: missing spec path
+description: Tests error handling when run command has no path
+
+test:
+  command: ./zig-out/bin/induct run 2>&1
+  expect_output_contains: "Missing"
+  expect_exit_code: 1

@@ -1,0 +1,6 @@
+name: exit code test
+description: Tests command that returns non-zero exit code
+
+test:
+  command: sh -c "exit 1"
+  expect_exit_code: 1

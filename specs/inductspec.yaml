@@ -1,0 +1,60 @@
+name: induct self-test suite
+description: Comprehensive test specifications for the induct CLI tool
+
+# Inline specs for quick sanity checks
+specs:
+  - name: help command shows usage
+    test:
+      command: ./zig-out/bin/induct help
+      expect_output_contains: "USAGE:"
+      expect_exit_code: 0
+
+  - name: version command works
+    test:
+      command: ./zig-out/bin/induct version
+      expect_output_contains: "0.1.0"
+      expect_exit_code: 0
+
+  - name: echo example passes
+    test:
+      command: ./zig-out/bin/induct run specs/examples/echo.yaml
+      expect_output_contains: "[PASS]"
+      expect_exit_code: 0
+
+  - name: stdin example passes
+    test:
+      command: ./zig-out/bin/induct run specs/examples/cat-stdin.yaml
+      expect_output_contains: "[PASS]"
+      expect_exit_code: 0
+
+  - name: exit code example passes
+    test:
+      command: ./zig-out/bin/induct run specs/examples/exit-code.yaml
+      expect_output_contains: "[PASS]"
+      expect_exit_code: 0
+
+  - name: setup-teardown example passes
+    test:
+      command: ./zig-out/bin/induct run specs/examples/setup-teardown.yaml
+      expect_output_contains: "[PASS]"
+      expect_exit_code: 0
+
+# Include external spec files for detailed tests
+include:
+  # CLI command tests
+  - cli/help.yaml
+  - cli/version.yaml
+  - cli/unknown-command.yaml
+  - cli/no-args.yaml
+
+  # Execution tests
+  - execution/run-passing-spec.yaml
+  - execution/run-failing-spec.yaml
+  - execution/run-with-json.yaml
+  - execution/run-with-verbose.yaml
+  - execution/run-dir.yaml
+
+  # Error handling tests
+  - errors/file-not-found.yaml
+  - errors/missing-spec-path.yaml
+  - errors/invalid-yaml.yaml

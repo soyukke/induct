@@ -1,0 +1,8 @@
+name: cat with stdin
+description: Tests cat command reading from stdin
+
+test:
+  command: cat
+  input: "hello world"
+  expect_output: "hello world"
+  expect_exit_code: 0

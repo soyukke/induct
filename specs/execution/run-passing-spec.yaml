@@ -1,0 +1,13 @@
+name: run passing spec
+description: Tests running a spec that passes
+
+setup:
+  - run: printf 'name: temp test\ntest:\n  command: echo hello\n  expect_output: "hello\\n"\n' > /tmp/induct-pass-test.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-pass-test.yaml
+  expect_output_contains: "[PASS]"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-pass-test.yaml

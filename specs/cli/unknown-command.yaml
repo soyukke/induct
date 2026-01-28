@@ -1,0 +1,7 @@
+name: unknown command
+description: Tests error handling for unknown commands
+
+test:
+  command: ./zig-out/bin/induct unknown-cmd 2>&1
+  expect_output_contains: "Unknown command"
+  expect_exit_code: 1

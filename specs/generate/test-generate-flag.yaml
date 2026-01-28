@@ -1,0 +1,8 @@
+name: generate flag test
+description: |
+  Test that generate flag is parsed correctly.
+  This spec verifies that the generate option works.
+test:
+  command: npm test -- tests/login.test.ts
+  generate: true
+  expect_exit_code: 0

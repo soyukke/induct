@@ -1,0 +1,7 @@
+name: file not found error
+description: Tests error handling when spec file does not exist
+
+test:
+  command: ./zig-out/bin/induct run /nonexistent/path/test.yaml
+  expect_output_contains: "Failed"
+  expect_exit_code: 1

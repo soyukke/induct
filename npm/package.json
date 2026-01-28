@@ -1,0 +1,32 @@
+{
+  "name": "induct",
+  "version": "0.1.0",
+  "description": "Executable specification engine for AI-era TDD",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/soyukke/induct"
+  },
+  "bin": {
+    "induct": "bin/induct"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install.js"
+  },
+  "files": [
+    "bin",
+    "scripts"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "keywords": [
+    "mcp",
+    "tdd",
+    "testing",
+    "zig"
+  ]
+}

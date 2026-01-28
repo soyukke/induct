@@ -1,0 +1,7 @@
+name: run-dir command
+description: Tests running all specs in a directory
+
+test:
+  command: ./zig-out/bin/induct run-dir specs/examples
+  expect_output_contains: "passed"
+  expect_exit_code: 0

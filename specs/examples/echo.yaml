@@ -1,0 +1,6 @@
+name: echo test
+description: Tests the echo command with simple output
+test:
+  command: echo hello
+  expect_output: "hello\n"
+  expect_exit_code: 0

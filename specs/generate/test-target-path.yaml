@@ -1,0 +1,9 @@
+name: explicit target path test
+description: |
+  User enters email and password for login.
+  On success, redirects to dashboard.
+test:
+  command: npm test -- tests/auth/login.test.ts
+  generate: true
+  target_path: tests/auth/login.test.ts
+  expect_exit_code: 0

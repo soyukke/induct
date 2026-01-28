@@ -1,0 +1,7 @@
+name: version command
+description: Tests the version command output
+
+test:
+  command: ./zig-out/bin/induct version
+  expect_output_contains: "0.1.0"
+  expect_exit_code: 0

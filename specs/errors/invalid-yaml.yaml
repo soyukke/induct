@@ -1,0 +1,13 @@
+name: invalid YAML error
+description: Tests error handling for malformed YAML
+
+setup:
+  - run: echo 'invalid: yaml: content: [broken' > /tmp/induct-invalid.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-invalid.yaml
+  expect_output_contains: "Failed"
+  expect_exit_code: 1
+
+teardown:
+  - run: rm -f /tmp/induct-invalid.yaml

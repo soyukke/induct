@@ -1,0 +1,7 @@
+name: help command
+description: Tests the help command output
+
+test:
+  command: ./zig-out/bin/induct help
+  expect_output_contains: "USAGE:"
+  expect_exit_code: 0

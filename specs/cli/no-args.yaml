@@ -1,0 +1,7 @@
+name: no arguments
+description: Tests behavior when no arguments provided
+
+test:
+  command: ./zig-out/bin/induct
+  expect_output_contains: "USAGE:"
+  expect_exit_code: 0
