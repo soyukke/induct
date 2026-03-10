@@ -2,42 +2,73 @@
 
 AIと人間が共有する、実行可能な仕様書エンジン。
 
-YAMLで振る舞いを定義し、コマンド一つで検証する。言語やフレームワークに依存しない。
+YAMLで「何が正しい振る舞いか」を宣言し、コマンド一つで検証する。言語・フレームワーク非依存。
 
-## 思想
+## なぜ Induct？
 
-ソフトウェアの仕様は実行できるべきだ。
+テストコードは言語やフレームワークに縛られる。シェルスクリプトで検証を書くと散らかる。
 
-1. **人間とAIが一緒に仕様（YAML）を書く**
-2. **AIが仕様をpassするまで実装する**
-3. **仕様がそのままドキュメントとして残る**
+Induct は **宣言的なYAML** でコマンドの期待動作を定義する。コマンドが実行できるものなら何でも検証できる — CLI、API、ビルド、スクリプト、何でも。
 
+- **宣言的**: 手続きを書かない。「何を期待するか」だけ書く
+- **言語非依存**: コマンドが実行できれば検証できる
+- **AI親和性**: YAMLスキーマを渡せばAIが仕様を書ける。仕様がそのままドキュメントになる
+- **ゼロ依存**: シングルバイナリ。ランタイム不要
+
+## インストール
+
+```bash
+npx induct help
 ```
-人間+AI → YAML仕様作成 → AIが実装 → induct run → FAIL → AI修正 → ... → PASS
+
+または、ソースからビルド：
+
+```bash
+git clone https://github.com/soyukke/induct.git
+cd induct
+zig build          # Zig 0.15.0+ が必要
 ```
 
 ## Quick Start
 
 ```bash
-# スキーマを確認して仕様の書き方を知る
-induct schema
-
 # 仕様を書く
-cat > specs/hello.yaml << 'EOF'
+cat > hello.yaml << 'EOF'
 name: hello world
 test:
-  command: ./hello
+  command: echo "Hello, World!"
   expect_output: "Hello, World!\n"
+  expect_exit_code: 0
 EOF
 
-# 構文チェック
-induct validate specs/hello.yaml
+# 実行して検証
+npx induct run hello.yaml
+```
 
-# 実行して検証（最初は FAIL）
-induct run specs/hello.yaml
+出力：
 
-# 実装したら再実行（PASS を目指す）
-induct run specs/hello.yaml
+```
+[PASS] hello world (3ms)
+
+----------------------------------------
+Total: 1 | passed: 1 | failed: 0 | Duration: 3ms
+
+All specs passed!
+```
+
+失敗するとこうなる：
+
+```
+[FAIL] hello world (2ms)
+  Error: Output mismatch
+  Expected: "Hello, World!\n"
+  Actual:   "something else\n"
+
+----------------------------------------
+Total: 1 | passed: 0 | failed: 1 | Duration: 2ms
+
+Failed:
+  - hello world: Output mismatch
 ```
 
 ## CLI
@@ -54,23 +85,34 @@ induct help                  # ヘルプ
 ### オプション
 
 ```
--v, --verbose     詳細出力
---json            JSON形式で結果出力
---junit           JUnit XML形式で出力
---fail-fast       最初の失敗で停止
---dry-run         パースのみ（実行しない）
---filter <pattern> 仕様名でフィルタ
--j <N>            並列実行数
+-v, --verbose        詳細出力
+--json               JSON形式で結果出力
+--junit              JUnit XML形式で出力（CI連携用）
+--fail-fast          最初の失敗で停止
+--dry-run            パースのみ（実行しない）
+--filter <pattern>   仕様名でフィルタ（run-dir用）
+-j <N>               並列実行数（run-dir用）
+--template <type>    テンプレート種類: basic, setup, api, cli, project（init用）
 ```
 
+### テンプレート生成
+
+```bash
+induct init                              # 標準テンプレートを stdout に出力
+induct init my-spec.yaml                 # ファイルに書き出し
+induct init api-test.yaml --template api # APIテスト用テンプレート
+induct init project.yaml --template project  # プロジェクト用テンプレート
+```
+
+テンプレート種類: `basic`（デフォルト）, `setup`, `api`, `cli`, `project`
+
 ## 仕様の書き方
+
+### 基本形
 
 ```yaml
 name: string                            # 必須: 仕様名
 description: string                     # 任意: 説明
-
-setup:                                  # 任意: 事前準備
-  - run: string
 
 test:
   command: string                       # 必須: 実行コマンド
@@ -86,13 +128,27 @@ test:
     KEY: value
   working_dir: string                   # 任意: 作業ディレクトリ
   timeout_ms: number                    # 任意: タイムアウト(ms)
-
-teardown:                               # 任意: 後片付け
-  - run: string
-  - kill_process: string
 ```
 
-### マルチステップ仕様（`test:` の代わりに `steps:` を使用）
+### セットアップ・ティアダウン
+
+```yaml
+name: string
+
+setup:                                  # 任意: test/steps の前に実行
+  - run: string
+
+test:
+  command: string
+
+teardown:                               # 任意: test/steps の後に必ず実行
+  - run: string
+  - kill_process: string                # プロセス名で kill
+```
+
+### マルチステップ仕様
+
+`test:` の代わりに `steps:` を使うと、複数コマンドを順次実行できる。
 
 ```yaml
 name: string
@@ -105,10 +161,32 @@ steps:
 ```
 
 - ステップは順番に実行される
-- 1つ失敗すると残りはスキップ
+- 1つ失敗すると残りはスキップ（`[SKIP]` 表示）
+- `steps:` と `test:` は排他（同時に使えない）
 - setup は全ステップの前に1回、teardown は後に1回実行
 
-## 仕様の例
+### プロジェクトスペック
+
+複数の仕様をまとめて管理する。インライン定義と外部ファイル参照の両方が使える。
+
+```yaml
+name: my project
+description: プロジェクト全体の仕様
+
+specs:                                  # インラインで仕様を定義
+  - name: sanity check
+    test:
+      command: echo "ok"
+      expect_output: "ok\n"
+
+include:                                # 外部ファイルを参照
+  - specs/api.yaml
+  - specs/cli.yaml
+```
+
+`induct run inductspec.yaml` で全仕様を一括実行。
+
+## 使用例
 
 ### コマンド出力の検証
 
@@ -129,22 +207,7 @@ test:
   expect_exit_code: 0
 ```
 
-### セットアップ・ティアダウン
-
-```yaml
-name: file creation test
-setup:
-  - run: mkdir -p /tmp/test
-
-test:
-  command: ls /tmp/test
-  expect_exit_code: 0
-
-teardown:
-  - run: rm -rf /tmp/test
-```
-
-### マルチステップ（シナリオテスト）
+### シナリオテスト（マルチステップ）
 
 ```yaml
 name: user CRUD flow
@@ -168,13 +231,14 @@ teardown:
   - kill_process: start-server
 ```
 
-### 複数仕様の一括管理
+### エラーケースの検証
 
 ```yaml
-name: my project specs
-include:
-  - specs/api.yaml
-  - specs/cli.yaml
+name: missing file error
+test:
+  command: cat /nonexistent
+  expect_exit_code: 1
+  expect_stderr_contains: "No such file"
 ```
 
 ## AI駆動開発での使い方
@@ -186,21 +250,22 @@ CLAUDE.md やプロジェクトの指示書に以下を書く：
 1. `induct schema` でYAML仕様の書き方を確認
 2. specs/ にYAML仕様を作成
 3. `induct validate <spec.yaml>` で構文確認
-4. `induct run <spec.yaml>` で FAIL を確認
-5. PASS するまで実装
+4. `induct run <spec.yaml>` で FAIL を確認（RED）
+5. PASS するまで実装（GREEN）
+6. `induct run specs/inductspec.yaml` で全仕様の回帰テスト
 ```
 
 AIツール（Claude Code, Cursor 等）はCLI経由で `induct` を実行できるので、特別な統合は不要。
 
-## Build
+### ワークフロー
 
-```bash
-git clone https://github.com/soyukke/induct.git
-cd induct
-zig build
+```
+人間+AI → YAML仕様作成 → induct run → FAIL → AIが実装 → induct run → PASS
+                ↑                                              |
+                └──────── 次の仕様を追加 ←─────────────────────┘
 ```
 
-Requires Zig 0.15.0+
+仕様ファイルがそのまま「何をテストしたか」のドキュメントとして残る。
 
 ## License
 
