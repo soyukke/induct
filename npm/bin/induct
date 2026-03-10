@@ -4,15 +4,40 @@ const { spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-const ext = process.platform === "win32" ? ".exe" : "";
-const binPath = path.join(__dirname, `induct-bin${ext}`);
+const PLATFORMS = {
+  "darwin-arm64": "@soyukke/induct-darwin-arm64",
+  "darwin-x64": "@soyukke/induct-darwin-x64",
+  "linux-arm64": "@soyukke/induct-linux-arm64",
+  "linux-x64": "@soyukke/induct-linux-x64",
+  "win32-x64": "@soyukke/induct-win32-x64",
+};
 
-if (!fs.existsSync(binPath)) {
-  console.error("induct binary not found. Try reinstalling: npm install -g induct");
+function getBinaryPath() {
+  const platform = `${process.platform}-${process.arch}`;
+  const pkg = PLATFORMS[platform];
+
+  if (!pkg) {
+    console.error(`Unsupported platform: ${platform}`);
+    process.exit(1);
+  }
+
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const binName = `induct${ext}`;
+
+  try {
+    const pkgDir = path.dirname(require.resolve(`${pkg}/package.json`));
+    const binPath = path.join(pkgDir, "bin", binName);
+    if (fs.existsSync(binPath)) return binPath;
+  } catch {}
+
+  console.error(
+    `induct binary not found for ${platform}.\n` +
+    `Try reinstalling: npm install @soyukke/induct`
+  );
   process.exit(1);
 }
 
-const result = spawnSync(binPath, process.argv.slice(2), {
+const result = spawnSync(getBinaryPath(), process.argv.slice(2), {
   stdio: "inherit",
 });
 

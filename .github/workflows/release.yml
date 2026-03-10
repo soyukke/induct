@@ -15,14 +15,19 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-linux
+            npm_pkg: linux-x64
           - os: ubuntu-latest
             target: aarch64-linux
+            npm_pkg: linux-arm64
           - os: macos-latest
             target: x86_64-macos
+            npm_pkg: darwin-x64
           - os: macos-latest
             target: aarch64-macos
+            npm_pkg: darwin-arm64
           - os: windows-latest
             target: x86_64-windows
+            npm_pkg: win32-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -38,14 +43,14 @@ jobs:
         run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
 
       - name: Package (Unix)
-        if: matrix.os != 'windows-latest'
+        if: runner.os != 'Windows'
         run: |
           cd zig-out/bin
           tar -czvf induct-${{ matrix.target }}.tar.gz induct
           mv induct-${{ matrix.target }}.tar.gz ../..
 
       - name: Package (Windows)
-        if: matrix.os == 'windows-latest'
+        if: runner.os == 'Windows'
         run: |
           cd zig-out/bin
           Compress-Archive -Path induct.exe -DestinationPath induct-${{ matrix.target }}.zip
@@ -56,6 +61,24 @@ jobs:
         with:
           name: induct-${{ matrix.target }}
           path: induct-${{ matrix.target }}.*
+
+      - name: Prepare npm platform package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p npm/platforms/${{ matrix.npm_pkg }}/bin
+          cp zig-out/bin/induct npm/platforms/${{ matrix.npm_pkg }}/bin/induct
+
+      - name: Prepare npm platform package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          New-Item -ItemType Directory -Force -Path npm/platforms/${{ matrix.npm_pkg }}/bin
+          Copy-Item zig-out/bin/induct.exe npm/platforms/${{ matrix.npm_pkg }}/bin/induct.exe
+
+      - name: Upload npm package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.npm_pkg }}
+          path: npm/platforms/${{ matrix.npm_pkg }}
 
   release:
     needs: build
@@ -71,6 +94,42 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: |
+            artifacts/induct-*
           generate_release_notes: true
 
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download npm artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in darwin-arm64 darwin-x64 linux-arm64 linux-x64 win32-x64; do
+            echo "Publishing @soyukke/induct-${pkg}..."
+            cp -r artifacts/npm-${pkg}/* npm/platforms/${pkg}/
+            cd npm/platforms/${pkg}
+            npm publish --access public || true
+            cd ../../..
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd npm
+          npm publish --access public

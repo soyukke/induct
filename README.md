@@ -18,7 +18,7 @@ Induct は **宣言的なYAML** でコマンドの期待動作を定義する。
 ## インストール
 
 ```bash
-npx induct help
+npx @soyukke/induct help
 ```
 
 または、ソースからビルド：
@@ -42,7 +42,7 @@ test:
 EOF
 
 # 実行して検証
-npx induct run hello.yaml
+npx @soyukke/induct run hello.yaml
 ```
 
 出力：
