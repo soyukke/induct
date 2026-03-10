@@ -7,6 +7,7 @@ pub const core = struct {
 
     pub const Spec = spec.Spec;
     pub const TestCase = spec.TestCase;
+    pub const Step = spec.Step;
     pub const SetupCommand = spec.SetupCommand;
     pub const TeardownCommand = spec.TeardownCommand;
     pub const SpecResult = result.SpecResult;
@@ -23,15 +24,6 @@ pub const cli = struct {
 
     pub const Command = args.Command;
     pub const Reporter = reporter.Reporter;
-};
-
-pub const mcp = struct {
-    pub const server = @import("mcp/server.zig");
-    pub const jsonrpc = @import("mcp/jsonrpc.zig");
-    pub const handlers = @import("mcp/handlers.zig");
-    pub const types = @import("mcp/types.zig");
-
-    pub const McpServer = server.McpServer;
 };
 
 pub const yaml = struct {

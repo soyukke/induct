@@ -1,0 +1,11 @@
+name: steps example
+description: A basic multi-step spec
+
+steps:
+  - name: step one
+    command: echo "hello"
+    expect_output: "hello\n"
+
+  - name: step two
+    command: echo "world"
+    expect_output: "world\n"

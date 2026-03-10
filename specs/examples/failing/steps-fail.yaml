@@ -1,0 +1,15 @@
+name: steps fail example
+description: A step that fails, skipping the rest
+
+steps:
+  - name: good step
+    command: echo "ok"
+    expect_output: "ok\n"
+
+  - name: bad step
+    command: echo "wrong"
+    expect_output: "right\n"
+
+  - name: skipped step
+    command: echo "never runs"
+    expect_output: "never runs\n"

@@ -638,6 +638,32 @@ fn parseTeardownCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue
     return teardown_cmds;
 }
 
+fn parseSteps(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const spec_mod.Step {
+    const steps_val = map.get("steps") orelse return null;
+    const list = steps_val.getList() orelse return null;
+    if (list.len == 0) return null;
+
+    var steps = allocator.alloc(spec_mod.Step, list.len) catch return ParseError.OutOfMemory;
+    errdefer allocator.free(steps);
+
+    for (list, 0..) |item, i| {
+        var item_copy = item;
+        var item_map = item_copy.getMap() orelse return ParseError.InvalidYaml;
+
+        const step_name_val = item_map.get("name") orelse return ParseError.MissingRequiredField;
+        const step_name = step_name_val.getString() orelse return ParseError.InvalidYaml;
+
+        // Steps have test case fields directly (not nested under test:)
+        const test_case = try parseTestCaseFromMap(allocator, item_map);
+
+        steps[i] = .{
+            .name = allocator.dupe(u8, step_name) catch return ParseError.OutOfMemory,
+            .test_case = test_case,
+        };
+    }
+    return steps;
+}
+
 pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
     var yaml_parser = Parser.init(allocator, source);
     var yaml = try yaml_parser.parse();
@@ -649,6 +675,21 @@ pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
     const name = name_val.getString() orelse return ParseError.InvalidYaml;
     const description = if (map.get("description")) |desc_val| desc_val.getString() else null;
 
+    const setup = try parseSetupCommands(allocator, map);
+    const teardown = try parseTeardownCommands(allocator, map);
+    const steps = try parseSteps(allocator, map);
+
+    // steps and test are mutually exclusive
+    if (steps != null) {
+        return Spec{
+            .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
+            .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
+            .setup = setup,
+            .steps = steps,
+            .teardown = teardown,
+        };
+    }
+
     const test_val = map.get("test_case") orelse map.get("test") orelse return ParseError.MissingRequiredField;
     const test_map = blk: {
         var tv = test_val;
@@ -656,8 +697,6 @@ pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
     };
 
     const test_case = try parseTestCaseFromMap(allocator, test_map);
-    const setup = try parseSetupCommands(allocator, map);
-    const teardown = try parseTeardownCommands(allocator, map);
 
     return Spec{
         .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,

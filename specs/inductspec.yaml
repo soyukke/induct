@@ -50,6 +50,7 @@ include:
   - cli/init-file.yaml
   - cli/validate-valid.yaml
   - cli/validate-invalid.yaml
+  - cli/schema.yaml
 
   # Execution tests
   - execution/run-passing-spec.yaml
@@ -68,6 +69,10 @@ include:
   - execution/dry-run.yaml
   - execution/filter.yaml
   - execution/parallel.yaml
+
+  # Steps tests
+  - execution/steps-basic.yaml
+  - execution/steps-fail-skips.yaml
 
   # Error handling tests
   - errors/file-not-found.yaml

@@ -1,0 +1,14 @@
+name: steps basic execution
+description: Steps execute sequentially and report individually
+
+setup:
+  - run: echo "setup" > /tmp/induct-steps-test.txt
+
+test:
+  command: ./zig-out/bin/induct run specs/examples/steps-example.yaml
+  expect_output_contains: "[PASS] steps example > step one"
+  expect_output_not_contains: "[FAIL]"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-steps-test.txt

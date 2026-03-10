@@ -48,7 +48,7 @@ pub const Reporter = struct {
         var writer = self.getWriter();
         const w = &writer.interface;
 
-        const status_str = if (result.passed) "[PASS]" else "[FAIL]";
+        const status_str = if (result.status == .skipped) "[SKIP]" else if (result.passed) "[PASS]" else "[FAIL]";
 
         w.print("{s} {s} ({d}ms)\n", .{
             status_str,
@@ -100,32 +100,55 @@ pub const Reporter = struct {
         w.flush() catch {};
     }
 
-    pub fn reportSummary(self: *Self, summary: RunSummary) void {
+    pub fn reportSummary(self: *Self, summary: RunSummary, results: ?[]const SpecResult) void {
         switch (self.format) {
             .json => self.reportSummaryJson(summary),
             .junit => {},
-            .text => self.reportSummaryText(summary),
+            .text => self.reportSummaryText(summary, results),
         }
     }
 
-    fn reportSummaryText(self: *Self, summary: RunSummary) void {
+    fn reportSummaryText(self: *Self, summary: RunSummary, results: ?[]const SpecResult) void {
         var writer = self.getWriter();
         const w = &writer.interface;
 
         w.print("\n", .{}) catch {};
         w.print("----------------------------------------\n", .{}) catch {};
 
-        w.print("Total: {d} | passed: {d} | failed: {d} | Duration: {d}ms\n", .{
-            summary.total,
-            summary.passed,
-            summary.failed,
-            summary.total_duration_ms,
-        }) catch {};
+        if (summary.skipped > 0) {
+            w.print("Total: {d} | passed: {d} | failed: {d} | skipped: {d} | Duration: {d}ms\n", .{
+                summary.total,
+                summary.passed,
+                summary.failed,
+                summary.skipped,
+                summary.total_duration_ms,
+            }) catch {};
+        } else {
+            w.print("Total: {d} | passed: {d} | failed: {d} | Duration: {d}ms\n", .{
+                summary.total,
+                summary.passed,
+                summary.failed,
+                summary.total_duration_ms,
+            }) catch {};
+        }
 
         if (summary.failed == 0) {
             w.print("\nAll specs passed!\n", .{}) catch {};
         } else {
-            w.print("\nSome specs failed.\n", .{}) catch {};
+            w.print("\nFailed:\n", .{}) catch {};
+            if (results) |res| {
+                for (res) |r| {
+                    if (!r.passed and r.status != .skipped) {
+                        w.print("  - {s}", .{r.spec_name}) catch {};
+                        if (r.error_message) |msg| {
+                            // Show first line of error only
+                            const first_line = if (std.mem.indexOf(u8, msg, "\n")) |nl| msg[0..nl] else msg;
+                            w.print(": {s}", .{first_line}) catch {};
+                        }
+                        w.print("\n", .{}) catch {};
+                    }
+                }
+            }
         }
 
         w.flush() catch {};
@@ -208,17 +231,17 @@ pub const Reporter = struct {
 
 pub fn printHelp(writer: anytype) void {
     writer.print(
-        \\induct - Executable Specification Engine for AI-era TDD
+        \\induct - Executable specification engine for AI-driven development
         \\
         \\USAGE:
         \\    induct <COMMAND> [OPTIONS] [ARGS]
         \\
         \\COMMANDS:
-        \\    run <spec.yaml>      Run a single spec file
+        \\    run <spec.yaml>      Run a spec and verify results
         \\    run-dir <dir>        Run all specs in a directory
-        \\    init [file.yaml]     Generate a template spec file
         \\    validate <spec.yaml> Validate spec syntax without executing
-        \\    mcp                  Start MCP server mode
+        \\    schema               Show YAML spec schema reference
+        \\    init [file.yaml]     Generate a template spec file
         \\    version              Show version information
         \\    help                 Show this help message
         \\
@@ -231,14 +254,104 @@ pub fn printHelp(writer: anytype) void {
         \\    --filter <pattern>   Filter specs by name substring (run-dir)
         \\    -j <N>               Run up to N specs in parallel (run-dir)
         \\    --with-setup         Include setup/teardown in template (init)
+        \\    --template <type>    Template type: basic, setup, api, cli, project (init)
         \\
         \\EXAMPLES:
+        \\    induct schema
         \\    induct run specs/echo.yaml
-        \\    induct run-dir specs/
-        \\    induct run --json --fail-fast specs/test.yaml
-        \\    induct run-dir --filter echo -j4 specs/
-        \\    induct init my-spec.yaml --with-setup
+        \\    induct run-dir specs/ -j4
         \\    induct validate specs/test.yaml
+        \\    induct init my-spec.yaml --template api
+        \\
+    , .{}) catch {};
+}
+
+pub fn printSchema(writer: anytype) void {
+    writer.print(
+        \\# Induct Spec Schema
+        \\
+        \\## Single Spec (*.yaml)
+        \\
+        \\```yaml
+        \\name: string                            # Required: spec name
+        \\description: string                     # Optional: description
+        \\
+        \\setup:                                  # Optional: pre-test commands
+        \\  - run: echo "setup"
+        \\
+        \\test:                                   # Required: test definition
+        \\  command: echo hello                    # Required: command to execute
+        \\  input: "stdin data"                    # Optional: stdin input
+        \\  expect_output: "hello\n"               # Optional: exact stdout match
+        \\  expect_output_contains: "llo"          # Optional: stdout substring match
+        \\  expect_output_not_contains: "err"      # Optional: stdout negative match
+        \\  expect_output_regex: "hel+"            # Optional: stdout regex (POSIX ERE)
+        \\  expect_stderr: "warn\n"                # Optional: exact stderr match
+        \\  expect_stderr_contains: "warn"         # Optional: stderr substring match
+        \\  expect_exit_code: 0                    # Optional: exit code (default: 0)
+        \\  env:                                   # Optional: environment variables
+        \\    KEY: value
+        \\  working_dir: /path/to/dir              # Optional: working directory
+        \\  timeout_ms: 5000                       # Optional: timeout in milliseconds
+        \\
+        \\teardown:                                # Optional: cleanup commands
+        \\  - run: rm -f /tmp/test.txt
+        \\  - kill_process: server
+        \\```
+        \\
+        \\## Multi-Step Spec
+        \\
+        \\```yaml
+        \\name: string                            # Required: spec name
+        \\description: string                     # Optional: description
+        \\
+        \\setup:                                  # Optional: pre-test commands (run once)
+        \\  - run: echo "setup"
+        \\
+        \\steps:                                  # Sequential steps (replaces test:)
+        \\  - name: step one                      # Required: step name
+        \\    command: echo hello                  # Required: command
+        \\    expect_output: "hello\n"             # Same fields as test:
+        \\
+        \\  - name: step two
+        \\    command: echo world
+        \\    expect_output_contains: "world"
+        \\
+        \\teardown:                               # Optional: cleanup (run once, always)
+        \\  - run: echo "cleanup"
+        \\```
+        \\
+        \\- Steps execute sequentially
+        \\- If a step fails, remaining steps are skipped
+        \\- setup runs once before all steps, teardown runs once after
+        \\- `steps:` and `test:` are mutually exclusive
+        \\
+        \\## Project Spec (inductspec.yaml)
+        \\
+        \\```yaml
+        \\name: project name                      # Required: project name
+        \\description: string                     # Optional: description
+        \\
+        \\specs:                                  # Optional: inline spec definitions
+        \\  - name: test1
+        \\    test:
+        \\      command: echo hello
+        \\      expect_output_contains: "hello"
+        \\
+        \\include:                                # Optional: external spec files
+        \\  - specs/auth.yaml
+        \\  - specs/api.yaml
+        \\```
+        \\
+        \\## Validation Rules
+        \\
+        \\- `name` and `test.command` are required fields
+        \\- `expect_exit_code` defaults to 0 if not specified
+        \\- Multiple expect_* fields can be combined (all must pass)
+        \\- `expect_output_regex` uses POSIX Extended Regular Expressions
+        \\- `timeout_ms` kills the process if exceeded
+        \\- `setup` commands run before the test (fail = test skipped)
+        \\- `teardown` commands always run (even on test failure)
         \\
     , .{}) catch {};
 }

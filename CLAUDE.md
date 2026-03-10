@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Induct is an executable specification engine for AI-era TDD, written in Zig. It executes test specifications defined in YAML files that validate command execution, output, and exit codes.
+Induct is an executable specification engine for AI-driven development, written in Zig. YAML で振る舞いを定義し、コマンド一つで検証する。言語やフレームワークに依存しない。
 
 ## Build Commands
 
@@ -25,22 +25,31 @@ src/
 ├── root.zig           # Public module exports
 ├── cli/
 │   ├── args.zig       # Argument parsing (Command union type)
-│   └── reporter.zig   # Text and JSON output formatting
+│   └── reporter.zig   # Text/JSON/JUnit output formatting, schema/help output
 ├── core/
 │   ├── spec.zig       # Spec, TestCase, SetupCommand, TeardownCommand structs
 │   ├── result.zig     # SpecResult, RunSummary types
-│   ├── executor.zig   # Test execution engine (executeSpec, executeSpecFromFile, executeSpecsFromDir)
+│   ├── executor.zig   # Spec execution engine (executeSpec, executeSpecFromFile, executeSpecsFromDir)
 │   └── validator.zig  # Output and exit code validation
-├── mcp/
-│   ├── server.zig     # MCP server (Model Context Protocol 2024-11-05)
-│   ├── jsonrpc.zig    # JSON-RPC request/response handling
-│   ├── handlers.zig   # MCP tool handlers with result caching
-│   └── types.zig      # MCP type definitions
 ├── process/
 │   └── runner.zig     # Shell command execution (sh -c wrapper, stdin/stdout capture)
 └── yaml/
     └── parser.zig     # Custom YAML parser (no external dependencies)
 ```
+
+## CLI Usage
+
+```bash
+induct run <spec.yaml>       # Run a spec and verify results
+induct run-dir <dir>         # Run all specs in a directory
+induct validate <spec.yaml>  # Validate spec syntax without executing
+induct schema                # Show YAML spec schema reference
+induct init [file.yaml]      # Generate template spec file
+induct version               # Show version
+induct help                  # Show help
+```
+
+Flags: `-v/--verbose`, `--json`, `--junit`, `--fail-fast`, `--dry-run`, `--filter <pattern>`, `-j <N>`, `--with-setup`
 
 ## YAML Spec Format
 
@@ -57,7 +66,7 @@ test:
   expect_output: "hello\n"               # Optional: exact output match
   expect_output_contains: "llo"          # Optional: substring match
   expect_output_not_contains: "error"    # Optional: negative substring match
-  expect_output_regex: "hel+"            # Optional: regex match (POSIX ERE via grep -E)
+  expect_output_regex: "hel+"            # Optional: regex match (POSIX ERE)
   expect_stderr: "warn\n"               # Optional: exact stderr match
   expect_stderr_contains: "warn"         # Optional: stderr substring match
   expect_exit_code: 0                    # Optional: expected exit code (default: 0)
@@ -71,33 +80,39 @@ teardown:                                # Optional cleanup
   - kill_process: server                 # Kill named process
 ```
 
-## CLI Usage
+### Multi-Step Spec (steps: replaces test:)
 
-```bash
-induct run <spec.yaml>     # Run single spec
-induct run-dir <dir>       # Run all .yaml/.yml specs in directory
-induct init [file.yaml]    # Generate template spec file
-induct validate <spec.yaml> # Validate spec syntax without executing
-induct mcp                 # Start MCP server mode
-induct version             # Show version
-induct help                # Show help
+```yaml
+name: scenario name
+steps:
+  - name: step one
+    command: echo hello
+    expect_output: "hello\n"
+  - name: step two
+    command: echo world
+    expect_output_contains: "world"
 ```
 
-Flags: `-v/--verbose`, `--json`, `--junit`, `--fail-fast`, `--dry-run`, `--filter <pattern>`, `-j <N>`, `--with-setup`
+Steps execute sequentially. If one fails, remaining steps are skipped.
 
 ## Key Implementation Details
 
 - Process execution uses `sh -c` wrapper via `std.process.Child`
 - YAML parser is custom-built (no dependencies) in `yaml/parser.zig`
 - Executor generates unique run IDs using timestamp + counter
-- MCP server uses line-based JSON-RPC protocol with result caching
 - Output capture limited to 10MB per command
 
-## Development Flow (TDD with Induct MCP)
+## Development Flow (Induct-Driven Development)
 
 When adding features or fixing bugs in this project, use the following flow:
 
-### 1. Write Spec First
+### 1. Check the Schema
+
+```bash
+induct schema
+```
+
+### 2. Write Spec First
 
 Create a YAML spec file in `specs/` that describes the expected behavior:
 
@@ -105,47 +120,36 @@ Create a YAML spec file in `specs/` that describes the expected behavior:
 name: new feature test
 description: |
   Description of what this feature should do.
-  Be specific about inputs and expected outputs.
 test:
   command: ./zig-out/bin/induct <args>
   expect_output_contains: "expected text"
   expect_exit_code: 0
 ```
 
-### 2. Run Spec to Confirm Failure
+### 3. Validate and Run (RED)
 
-```
-mcp__induct__run_spec({ path: "specs/path/to/spec.yaml" })
+```bash
+induct validate specs/path/to/spec.yaml
+induct run specs/path/to/spec.yaml
 ```
 
 The spec should fail (RED phase).
 
-### 3. Implement the Feature
+### 4. Implement the Feature
 
 Write the minimal code to make the spec pass.
 
-### 4. Run Spec to Verify
+### 5. Run Spec to Verify (GREEN)
 
-```
-mcp__induct__run_spec({ path: "specs/path/to/spec.yaml" })
-```
-
-The spec should pass (GREEN phase).
-
-### 5. Run All Specs
-
-Ensure no regressions:
-
-```
-mcp__induct__run_spec({ path: "specs/inductspec.yaml" })
+```bash
+induct run specs/path/to/spec.yaml
 ```
 
-### Available MCP Tools
+### 6. Run All Specs (No Regressions)
 
-- `mcp__induct__run_spec`: Execute a spec and return results
-- `mcp__induct__list_specs`: List spec files in a directory
-- `mcp__induct__read_spec`: Read spec file contents
-- `mcp__induct__get_schema`: Get YAML schema reference
+```bash
+induct run specs/inductspec.yaml
+```
 
 ### Spec Organization
 

@@ -22,6 +22,7 @@ pub const GenerateInfo = struct {
 pub const SpecStatus = enum {
     passed,
     failed,
+    skipped,
     generate_required,
 };
 
@@ -72,6 +73,7 @@ pub const RunSummary = struct {
     total: usize,
     passed: usize,
     failed: usize,
+    skipped: usize,
     total_duration_ms: u64,
 
     pub fn init() RunSummary {
@@ -79,13 +81,16 @@ pub const RunSummary = struct {
             .total = 0,
             .passed = 0,
             .failed = 0,
+            .skipped = 0,
             .total_duration_ms = 0,
         };
     }
 
     pub fn add(self: *RunSummary, result: SpecResult) void {
         self.total += 1;
-        if (result.passed) {
+        if (result.status == .skipped) {
+            self.skipped += 1;
+        } else if (result.passed) {
             self.passed += 1;
         } else {
             self.failed += 1;

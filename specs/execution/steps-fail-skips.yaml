@@ -1,0 +1,7 @@
+name: steps failure skips remaining
+description: When a step fails, remaining steps are skipped
+
+test:
+  command: ./zig-out/bin/induct run specs/examples/failing/steps-fail.yaml
+  expect_output_contains: "[SKIP]"
+  expect_exit_code: 1

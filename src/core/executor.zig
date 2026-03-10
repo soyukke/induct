@@ -207,6 +207,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
         } else {
             // Validate results
             const validation = validator.validate(
+                allocator,
                 proc_result.stdout,
                 proc_result.stderr,
                 proc_result.exit_code,
@@ -220,7 +221,11 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
 
             passed = validation.passed;
             if (!passed and validation.error_message != null) {
-                error_message = try allocator.dupe(u8, validation.error_message.?);
+                if (validation.allocated) {
+                    error_message = validation.error_message;
+                } else {
+                    error_message = try allocator.dupe(u8, validation.error_message.?);
+                }
             }
 
             // Regex validation (requires shelling out to grep)
@@ -229,7 +234,11 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
                     const regex_match = try matchRegex(allocator, proc_result.stdout, pattern);
                     if (!regex_match) {
                         passed = false;
-                        error_message = try allocator.dupe(u8, "Output does not match regex pattern");
+                        error_message = try std.fmt.allocPrint(
+                            allocator,
+                            "Output does not match regex\n  Pattern: \"{s}\"\n  Actual:  \"{s}\"",
+                            .{ pattern, validator.truncate(proc_result.stdout) },
+                        );
                     }
                 }
             }
@@ -270,9 +279,10 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
     };
 }
 
-pub fn executeSpecFromFile(allocator: Allocator, path: []const u8) !SpecResult {
+pub fn executeSpecFromFile(allocator: Allocator, path: []const u8) ![]SpecResult {
     var spec = parser.parseSpecFromFile(allocator, path) catch |err| {
-        return SpecResult{
+        var results: std.ArrayListUnmanaged(SpecResult) = .empty;
+        try results.append(allocator, SpecResult{
             .id = try generateId(allocator),
             .spec_name = try allocator.dupe(u8, path),
             .passed = false,
@@ -281,11 +291,102 @@ pub fn executeSpecFromFile(allocator: Allocator, path: []const u8) !SpecResult {
             .actual_exit_code = -1,
             .error_message = try std.fmt.allocPrint(allocator, "Failed to parse spec: {}", .{err}),
             .duration_ms = 0,
-        };
+        });
+        return try results.toOwnedSlice(allocator);
     };
     defer spec.deinit(allocator);
 
-    return executeSpec(allocator, spec);
+    if (spec.hasSteps()) {
+        return executeSpecSteps(allocator, spec);
+    }
+
+    var results: std.ArrayListUnmanaged(SpecResult) = .empty;
+    try results.append(allocator, try executeSpec(allocator, spec));
+    return try results.toOwnedSlice(allocator);
+}
+
+fn executeSpecSteps(allocator: Allocator, spec: spec_mod.Spec) ![]SpecResult {
+    const steps = spec.steps.?;
+    var results: std.ArrayListUnmanaged(SpecResult) = .empty;
+    errdefer {
+        for (results.items) |*r| r.deinit(allocator);
+        results.deinit(allocator);
+    }
+
+    var setup_failed = false;
+
+    // Run setup once
+    if (spec.setup) |setup_cmds| {
+        for (setup_cmds) |cmd| {
+            var proc_result = runner.runCommandSimple(allocator, cmd.run) catch {
+                setup_failed = true;
+                break;
+            };
+            defer proc_result.deinit(allocator);
+            if (proc_result.exit_code != 0) {
+                setup_failed = true;
+                break;
+            }
+        }
+    }
+
+    var skip_remaining = setup_failed;
+
+    for (steps) |step| {
+        const step_name = try std.fmt.allocPrint(allocator, "{s} > {s}", .{ spec.name, step.name });
+
+        if (skip_remaining) {
+            try results.append(allocator, SpecResult{
+                .id = try generateId(allocator),
+                .spec_name = step_name,
+                .passed = false,
+                .status = .skipped,
+                .actual_output = try allocator.dupe(u8, ""),
+                .actual_stderr = try allocator.dupe(u8, ""),
+                .actual_exit_code = -1,
+                .error_message = try allocator.dupe(u8, "Skipped due to previous failure"),
+                .duration_ms = 0,
+            });
+            continue;
+        }
+
+        // Create a temporary single-step spec to reuse executeSpec
+        const step_spec = spec_mod.Spec{
+            .name = step_name,
+            .test_case = step.test_case,
+        };
+
+        var result = try executeSpec(allocator, step_spec);
+        // Replace the name since executeSpec dupes spec.name
+        allocator.free(result.spec_name);
+        result.spec_name = step_name;
+
+        if (!result.passed) {
+            skip_remaining = true;
+        }
+
+        try results.append(allocator, result);
+    }
+
+    // Run teardown once (always)
+    if (spec.teardown) |teardown_cmds| {
+        for (teardown_cmds) |cmd| {
+            switch (cmd) {
+                .run => |run_cmd| {
+                    var proc_result = runner.runCommandSimple(allocator, run_cmd) catch continue;
+                    proc_result.deinit(allocator);
+                },
+                .kill_process => |process_name| {
+                    const kill_cmd = std.fmt.allocPrint(allocator, "pkill -f '{s}'", .{process_name}) catch continue;
+                    defer allocator.free(kill_cmd);
+                    var proc_result = runner.runCommandSimple(allocator, kill_cmd) catch continue;
+                    proc_result.deinit(allocator);
+                },
+            }
+        }
+    }
+
+    return try results.toOwnedSlice(allocator);
 }
 
 /// Validate a spec file without executing it. Returns null if valid, error message if invalid.
@@ -293,17 +394,30 @@ pub fn validateSpecFile(allocator: Allocator, path: []const u8) !?[]const u8 {
     // Try to parse as project spec first
     if (isProjectSpecFile(path)) {
         var project = parser.parseProjectSpecFromFile(allocator, path) catch |err| {
-            return try std.fmt.allocPrint(allocator, "Invalid project spec: {}", .{err});
+            return try formatValidationError(allocator, err, "project spec");
         };
         project.deinit(allocator);
         return null;
     }
 
     var spec = parser.parseSpecFromFile(allocator, path) catch |err| {
-        return try std.fmt.allocPrint(allocator, "Invalid spec: {}", .{err});
+        return try formatValidationError(allocator, err, "spec");
     };
     spec.deinit(allocator);
     return null;
+}
+
+fn formatValidationError(allocator: Allocator, err: anyerror, spec_type: []const u8) ![]const u8 {
+    const detail = switch (err) {
+        error.MissingRequiredField => "Missing required field. A spec must have 'name' and 'test.command'. Run 'induct schema' for the full format.",
+        error.InvalidYaml => "YAML syntax error. Check indentation and formatting.",
+        error.UnexpectedToken => "Unexpected token in YAML. Check for invalid characters or incorrect nesting.",
+        error.InvalidCharacter => "Invalid character found. Check for encoding issues.",
+        error.FileNotFound => "File not found. Check that the path exists.",
+        error.IsDir => "Path is a directory, not a file. Use 'run-dir' for directories.",
+        else => return try std.fmt.allocPrint(allocator, "Invalid {s}: {}", .{ spec_type, err }),
+    };
+    return try allocator.dupe(u8, detail);
 }
 
 pub const ExecuteOptions = struct {
@@ -390,12 +504,17 @@ pub fn executeSpecsFromDirWithOptions(allocator: Allocator, dir_path: []const u8
 
     // Sequential execution
     for (paths.items) |path| {
-        const result = try executeSpecFromFile(allocator, path);
-        try results.append(allocator, result);
+        const file_results = try executeSpecFromFile(allocator, path);
+        defer allocator.free(file_results);
 
-        if (options.fail_fast and !result.passed) {
-            break;
+        var should_stop = false;
+        for (file_results) |r| {
+            try results.append(allocator, r);
+            if (options.fail_fast and !r.passed and r.status != .skipped) {
+                should_stop = true;
+            }
         }
+        if (should_stop) break;
     }
 
     return try results.toOwnedSlice(allocator);
@@ -403,31 +522,23 @@ pub fn executeSpecsFromDirWithOptions(allocator: Allocator, dir_path: []const u8
 
 fn executeSpecsParallel(allocator: Allocator, paths: []const []const u8, options: ExecuteOptions) ![]SpecResult {
     const n = paths.len;
-    const results = try allocator.alloc(SpecResult, n);
-    // Initialize results to prevent undefined memory
-    for (results) |*r| {
-        r.* = SpecResult{
-            .id = try allocator.dupe(u8, ""),
-            .spec_name = try allocator.dupe(u8, ""),
-            .passed = false,
-            .actual_output = try allocator.dupe(u8, ""),
-            .actual_stderr = try allocator.dupe(u8, ""),
-            .actual_exit_code = -1,
-            .error_message = null,
-            .duration_ms = 0,
-        };
-    }
-
     const effective_jobs = @min(options.max_jobs, n);
+
+    // Each file can produce multiple results (steps), so store slices
+    const file_results = try allocator.alloc([]SpecResult, n);
+    defer allocator.free(file_results);
+    for (file_results) |*r| r.* = &.{};
 
     const ThreadContext = struct {
         alloc: Allocator,
         path: []const u8,
-        result_slot: *SpecResult,
+        result_slot: *[]SpecResult,
 
         fn work(ctx: @This()) void {
-            const result = executeSpecFromFile(ctx.alloc, ctx.path) catch {
-                ctx.result_slot.* = SpecResult{
+            ctx.result_slot.* = executeSpecFromFile(ctx.alloc, ctx.path) catch {
+                // Create error result on failure
+                var err_results: std.ArrayListUnmanaged(SpecResult) = .empty;
+                err_results.append(ctx.alloc, SpecResult{
                     .id = ctx.alloc.dupe(u8, "error") catch return,
                     .spec_name = ctx.alloc.dupe(u8, ctx.path) catch return,
                     .passed = false,
@@ -436,10 +547,10 @@ fn executeSpecsParallel(allocator: Allocator, paths: []const []const u8, options
                     .actual_exit_code = -1,
                     .error_message = ctx.alloc.dupe(u8, "Thread execution failed") catch null,
                     .duration_ms = 0,
-                };
+                }) catch return;
+                ctx.result_slot.* = err_results.toOwnedSlice(ctx.alloc) catch return;
                 return;
             };
-            ctx.result_slot.* = result;
         }
     };
 
@@ -450,7 +561,6 @@ fn executeSpecsParallel(allocator: Allocator, paths: []const []const u8, options
     var launched: usize = 0;
 
     for (paths, 0..) |path, i| {
-        // If we've hit the job limit, wait for one to finish
         while (launched >= effective_jobs) {
             var found = false;
             for (threads[0..launched]) |*t| {
@@ -468,23 +578,30 @@ fn executeSpecsParallel(allocator: Allocator, paths: []const []const u8, options
         threads[i] = std.Thread.spawn(.{}, ThreadContext.work, .{ThreadContext{
             .alloc = allocator,
             .path = path,
-            .result_slot = &results[i],
+            .result_slot = &file_results[i],
         }}) catch null;
 
         if (threads[i] != null) {
             launched += 1;
         } else {
-            // Thread spawn failed, run sequentially
-            results[i] = try executeSpecFromFile(allocator, path);
+            file_results[i] = try executeSpecFromFile(allocator, path);
         }
     }
 
-    // Wait for all remaining threads
     for (threads) |t| {
         if (t) |thread| thread.join();
     }
 
-    return results;
+    // Flatten results
+    var all_results: std.ArrayListUnmanaged(SpecResult) = .empty;
+    for (file_results) |fr| {
+        for (fr) |r| {
+            try all_results.append(allocator, r);
+        }
+        allocator.free(fr);
+    }
+
+    return try all_results.toOwnedSlice(allocator);
 }
 
 pub fn executeProjectSpec(allocator: Allocator, project: ProjectSpec, base_dir: ?[]const u8) ![]SpecResult {
@@ -553,10 +670,17 @@ pub fn executeProjectSpecWithOptions(allocator: Allocator, project: ProjectSpec,
             }
             if (should_stop) return try results.toOwnedSlice(allocator);
         } else {
-            const result = try executeSpecFromFile(allocator, full_path);
-            try results.append(allocator, result);
+            const file_results = try executeSpecFromFile(allocator, full_path);
+            defer allocator.free(file_results);
 
-            if (options.fail_fast and !result.passed) {
+            var should_stop_file = false;
+            for (file_results) |r| {
+                try results.append(allocator, r);
+                if (options.fail_fast and !r.passed and r.status != .skipped) {
+                    should_stop_file = true;
+                }
+            }
+            if (should_stop_file) {
                 return try results.toOwnedSlice(allocator);
             }
         }

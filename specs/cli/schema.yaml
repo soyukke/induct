@@ -1,0 +1,7 @@
+name: schema command
+description: Tests that the schema command outputs YAML spec reference
+
+test:
+  command: ./zig-out/bin/induct schema
+  expect_output_contains: "# Induct Spec Schema"
+  expect_exit_code: 0

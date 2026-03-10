@@ -1,53 +1,83 @@
 const std = @import("std");
 const induct = @import("induct");
 
-const init_template_basic =
-    \\name: my spec
-    \\description: Description of what this spec tests
-    \\
-    \\test:
-    \\  command: echo "hello world"
-    \\  expect_output: "hello world\n"
-    \\  expect_exit_code: 0
-    \\  # input: "stdin input"
-    \\  # expect_output_contains: "hello"
-    \\  # expect_output_not_contains: "error"
-    \\  # expect_output_regex: "hello.*world"
-    \\  # expect_stderr: ""
-    \\  # expect_stderr_contains: ""
-    \\  # env:
-    \\  #   KEY: value
-    \\  # working_dir: /path/to/dir
-    \\  # timeout_ms: 5000
-    \\
-;
+const templates = struct {
+    const basic =
+        \\name: my spec
+        \\description: Description of what this spec tests
+        \\
+        \\test:
+        \\  command: echo "hello world"
+        \\  expect_output: "hello world\n"
+        \\  expect_exit_code: 0
+        \\
+    ;
 
-const init_template_with_setup =
-    \\name: my spec
-    \\description: Description of what this spec tests
-    \\
-    \\setup:
-    \\  - run: echo "setting up"
-    \\
-    \\test:
-    \\  command: echo "hello world"
-    \\  expect_output: "hello world\n"
-    \\  expect_exit_code: 0
-    \\  # input: "stdin input"
-    \\  # expect_output_contains: "hello"
-    \\  # expect_output_not_contains: "error"
-    \\  # expect_output_regex: "hello.*world"
-    \\  # expect_stderr: ""
-    \\  # expect_stderr_contains: ""
-    \\  # env:
-    \\  #   KEY: value
-    \\  # working_dir: /path/to/dir
-    \\  # timeout_ms: 5000
-    \\
-    \\teardown:
-    \\  - run: echo "cleaning up"
-    \\
-;
+    const setup =
+        \\name: my spec
+        \\description: Description of what this spec tests
+        \\
+        \\setup:
+        \\  - run: echo "setting up"
+        \\
+        \\test:
+        \\  command: echo "hello world"
+        \\  expect_output: "hello world\n"
+        \\  expect_exit_code: 0
+        \\
+        \\teardown:
+        \\  - run: echo "cleaning up"
+        \\
+    ;
+
+    const api =
+        \\name: API endpoint test
+        \\description: Verify API responds correctly
+        \\
+        \\test:
+        \\  command: curl -s http://localhost:8080/health
+        \\  expect_output_contains: '"status"'
+        \\  expect_exit_code: 0
+        \\  timeout_ms: 5000
+        \\
+    ;
+
+    const cli_tool =
+        \\name: CLI command test
+        \\description: Verify CLI command output
+        \\
+        \\test:
+        \\  command: ./my-tool --version
+        \\  expect_output_contains: "v"
+        \\  expect_exit_code: 0
+        \\
+    ;
+
+    const project =
+        \\name: my project
+        \\description: Project test suite
+        \\
+        \\specs:
+        \\  - name: sanity check
+        \\    test:
+        \\      command: echo "ok"
+        \\      expect_output: "ok\n"
+        \\
+        \\include:
+        \\  # - specs/feature.yaml
+        \\
+    ;
+
+    fn get(template_type: induct.cli.args.TemplateType) []const u8 {
+        return switch (template_type) {
+            .basic => basic,
+            .setup => setup,
+            .api => api,
+            .cli_tool => cli_tool,
+            .project => project,
+        };
+    }
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
@@ -127,26 +157,33 @@ pub fn main() !void {
                 if (format == .junit) {
                     reporter.reportJunit(results, summary);
                 } else {
-                    reporter.reportSummary(summary);
+                    reporter.reportSummary(summary, results);
                 }
 
                 if (summary.failed > 0) std.process.exit(1);
             } else {
-                var result = try induct.core.executor.executeSpecFromFile(allocator, run_args.spec_path);
-                defer result.deinit(allocator);
-
-                var summary = induct.core.result.RunSummary.init();
-                summary.add(result);
-
-                if (format == .junit) {
-                    const results_slice = @as([]const induct.core.result.SpecResult, &[_]induct.core.result.SpecResult{result});
-                    reporter.reportJunit(results_slice, summary);
-                } else {
-                    reporter.reportResult(result);
-                    reporter.reportSummary(summary);
+                const results = try induct.core.executor.executeSpecFromFile(allocator, run_args.spec_path);
+                defer {
+                    for (results) |*r| {
+                        var result = @constCast(r);
+                        result.deinit(allocator);
+                    }
+                    allocator.free(results);
                 }
 
-                if (!result.passed) std.process.exit(1);
+                var summary = induct.core.result.RunSummary.init();
+                for (results) |r| {
+                    reporter.reportResult(r);
+                    summary.add(r);
+                }
+
+                if (format == .junit) {
+                    reporter.reportJunit(results, summary);
+                } else {
+                    reporter.reportSummary(summary, results);
+                }
+
+                if (summary.failed > 0) std.process.exit(1);
             }
         },
         .run_dir => |run_args| {
@@ -187,13 +224,13 @@ pub fn main() !void {
             if (format == .junit) {
                 reporter.reportJunit(results, summary);
             } else {
-                reporter.reportSummary(summary);
+                reporter.reportSummary(summary, results);
             }
 
             if (summary.failed > 0) std.process.exit(1);
         },
         .init_cmd => |init_args| {
-            const template = if (init_args.with_setup) init_template_with_setup else init_template_basic;
+            const template = templates.get(init_args.template);
 
             if (init_args.output_path) |path| {
                 const file = std.fs.cwd().createFile(path, .{ .exclusive = true }) catch |err| {
@@ -232,10 +269,9 @@ pub fn main() !void {
                 stdout.flush() catch {};
             }
         },
-        .mcp => {
-            var server = induct.mcp.server.McpServer.init(allocator);
-            defer server.deinit();
-            try server.run();
+        .schema => {
+            induct.cli.reporter.printSchema(stdout);
+            stdout.flush() catch {};
         },
         .version => {
             induct.cli.reporter.printVersion(stdout);

@@ -5,8 +5,13 @@ pub const Spec = struct {
     name: []const u8,
     description: ?[]const u8 = null,
     setup: ?[]const SetupCommand = null,
-    test_case: TestCase,
+    test_case: TestCase = .{},
+    steps: ?[]const Step = null,
     teardown: ?[]const TeardownCommand = null,
+
+    pub fn hasSteps(self: Spec) bool {
+        return self.steps != null and self.steps.?.len > 0;
+    }
 
     pub fn deinit(self: *Spec, allocator: Allocator) void {
         allocator.free(self.name);
@@ -20,6 +25,13 @@ pub const Spec = struct {
             allocator.free(setup_cmds);
         }
         self.test_case.deinit(allocator);
+        if (self.steps) |steps_list| {
+            for (steps_list) |*step| {
+                var mutable_step = @constCast(step);
+                mutable_step.deinit(allocator);
+            }
+            allocator.free(steps_list);
+        }
         if (self.teardown) |teardown_cmds| {
             for (teardown_cmds) |cmd| {
                 cmd.deinit(allocator);
@@ -40,7 +52,7 @@ pub const EnvVar = struct {
 };
 
 pub const TestCase = struct {
-    command: []const u8,
+    command: []const u8 = "",
     input: ?[]const u8 = null,
     expect_output: ?[]const u8 = null,
     expect_output_contains: ?[]const u8 = null,
@@ -70,6 +82,16 @@ pub const TestCase = struct {
             allocator.free(env_vars);
         }
         if (self.working_dir) |wd| allocator.free(wd);
+    }
+};
+
+pub const Step = struct {
+    name: []const u8,
+    test_case: TestCase,
+
+    pub fn deinit(self: *Step, allocator: Allocator) void {
+        allocator.free(self.name);
+        self.test_case.deinit(allocator);
     }
 };
 

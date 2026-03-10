@@ -5,7 +5,7 @@ pub const Command = union(enum) {
     run_dir: RunDirArgs,
     init_cmd: InitArgs,
     validate_cmd: ValidateArgs,
-    mcp: void,
+    schema: void,
     version: void,
     help: void,
 };
@@ -30,9 +30,18 @@ pub const RunDirArgs = struct {
     max_jobs: usize = 1,
 };
 
+pub const TemplateType = enum {
+    basic,
+    setup,
+    api,
+    cli_tool,
+    project,
+};
+
 pub const InitArgs = struct {
     output_path: ?[]const u8 = null,
     with_setup: bool = false,
+    template: TemplateType = .basic,
 };
 
 pub const ValidateArgs = struct {
@@ -58,6 +67,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
     var fail_fast = false;
     var dry_run = false;
     var with_setup = false;
+    var template: TemplateType = .basic;
     var filter: ?[]const u8 = null;
     var max_jobs: usize = 1;
     var positional: ?[]const u8 = null;
@@ -78,6 +88,12 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
             dry_run = true;
         } else if (std.mem.eql(u8, arg, "--with-setup")) {
             with_setup = true;
+        } else if (std.mem.eql(u8, arg, "--template")) {
+            i += 1;
+            if (i >= args.len) return ParseError.MissingArgument;
+            template = parseTemplateType(args[i]) orelse return ParseError.InvalidOption;
+        } else if (std.mem.startsWith(u8, arg, "--template=")) {
+            template = parseTemplateType(arg["--template=".len..]) orelse return ParseError.InvalidOption;
         } else if (std.mem.eql(u8, arg, "--filter")) {
             i += 1;
             if (i >= args.len) return ParseError.MissingArgument;
@@ -126,10 +142,12 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
             },
         };
     } else if (std.mem.eql(u8, cmd, "init")) {
+        const effective_template = if (with_setup and template == .basic) TemplateType.setup else template;
         return Command{
             .init_cmd = .{
                 .output_path = positional,
                 .with_setup = with_setup,
+                .template = effective_template,
             },
         };
     } else if (std.mem.eql(u8, cmd, "validate")) {
@@ -141,8 +159,8 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
                 .spec_path = positional.?,
             },
         };
-    } else if (std.mem.eql(u8, cmd, "mcp")) {
-        return Command.mcp;
+    } else if (std.mem.eql(u8, cmd, "schema")) {
+        return Command.schema;
     } else if (std.mem.eql(u8, cmd, "version") or std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-V")) {
         return Command.version;
     } else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) {
@@ -150,6 +168,15 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
     }
 
     return ParseError.UnknownCommand;
+}
+
+fn parseTemplateType(s: []const u8) ?TemplateType {
+    if (std.mem.eql(u8, s, "basic")) return .basic;
+    if (std.mem.eql(u8, s, "setup")) return .setup;
+    if (std.mem.eql(u8, s, "api")) return .api;
+    if (std.mem.eql(u8, s, "cli")) return .cli_tool;
+    if (std.mem.eql(u8, s, "project")) return .project;
+    return null;
 }
 
 test "parse run command" {
