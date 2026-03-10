@@ -34,8 +34,7 @@ fn timeoutWatcher(child: *std.process.Child, timeout_ms: u64, timed_out: *std.at
 
     if (!process_done.load(.acquire)) {
         timed_out.store(true, .release);
-        // Kill the child process
-        std.posix.kill(child.id, std.posix.SIG.KILL) catch {};
+        _ = child.kill() catch {};
     }
 }
 
