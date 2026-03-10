@@ -1,0 +1,12 @@
+name: init command creates file
+description: |
+  induct init <path> creates a template spec file at the given path.
+  Fails if the file already exists to prevent overwriting.
+
+test:
+  command: ./zig-out/bin/induct init /tmp/induct-init-test.yaml && cat /tmp/induct-init-test.yaml
+  expect_output_contains: "name: my spec"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-init-test.yaml

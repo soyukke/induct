@@ -6,6 +6,7 @@ pub const ProcessResult = struct {
     stderr: []const u8,
     exit_code: i32,
     duration_ns: u64,
+    timed_out: bool = false,
 
     pub fn deinit(self: *ProcessResult, allocator: Allocator) void {
         allocator.free(self.stdout);
@@ -19,6 +20,24 @@ pub const RunError = error{
     OutOfMemory,
     SpawnFailed,
 };
+
+fn timeoutWatcher(child: *std.process.Child, timeout_ms: u64, timed_out: *std.atomic.Value(bool), process_done: *std.atomic.Value(bool)) void {
+    const check_interval_ns: u64 = 10 * std.time.ns_per_ms; // 10ms
+    var elapsed_ns: u64 = 0;
+    const timeout_ns: u64 = timeout_ms * std.time.ns_per_ms;
+
+    while (elapsed_ns < timeout_ns) {
+        if (process_done.load(.acquire)) return;
+        std.Thread.sleep(check_interval_ns);
+        elapsed_ns += check_interval_ns;
+    }
+
+    if (!process_done.load(.acquire)) {
+        timed_out.store(true, .release);
+        // Kill the child process
+        std.posix.kill(child.id, std.posix.SIG.KILL) catch {};
+    }
+}
 
 pub fn runCommand(
     allocator: Allocator,
@@ -50,10 +69,14 @@ pub fn runCommand(
     }
 
     // Set up timeout if specified
-    if (timeout_ms) |timeout| {
-        _ = timeout;
-        // TODO: Implement timeout handling with a separate thread
-        // For now, we'll skip timeout support
+    var timed_out = std.atomic.Value(bool).init(false);
+    var process_done = std.atomic.Value(bool).init(false);
+    var timeout_thread: ?std.Thread = null;
+
+    if (timeout_ms) |ms| {
+        timeout_thread = std.Thread.spawn(.{}, timeoutWatcher, .{
+            &child, ms, &timed_out, &process_done,
+        }) catch null;
     }
 
     // Read stdout
@@ -70,11 +93,14 @@ pub fn runCommand(
 
     // Wait for process to complete
     const term = child.wait() catch {
+        process_done.store(true, .release);
+        if (timeout_thread) |t| t.join();
         return RunError.CommandFailed;
     };
 
     const end_time = std.time.nanoTimestamp();
-    const duration_ns: u64 = @intCast(end_time - start_time);
+    process_done.store(true, .release);
+    if (timeout_thread) |t| t.join();
 
     const exit_code: i32 = switch (term) {
         .Exited => |code| @as(i32, code),
@@ -87,7 +113,8 @@ pub fn runCommand(
         .stdout = if (stdout.len > 0) stdout else allocator.dupe(u8, "") catch return RunError.OutOfMemory,
         .stderr = if (stderr.len > 0) stderr else allocator.dupe(u8, "") catch return RunError.OutOfMemory,
         .exit_code = exit_code,
-        .duration_ns = duration_ns,
+        .duration_ns = @intCast(end_time - start_time),
+        .timed_out = timed_out.load(.acquire),
     };
 }
 

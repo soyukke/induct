@@ -1,0 +1,15 @@
+name: expect_output_not_contains validates absence
+description: |
+  expect_output_not_contains verifies that the command output
+  does NOT contain the specified substring. Passes when absent, fails when present.
+
+setup:
+  - run: printf 'name: not contains pass\ntest:\n  command: echo hello world\n  expect_output_not_contains: error\n' > /tmp/induct-notcontains-test.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-notcontains-test.yaml 2>&1
+  expect_output_contains: "[PASS]"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-notcontains-test.yaml

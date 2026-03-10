@@ -1,0 +1,16 @@
+name: expect_output_regex matches with POSIX ERE
+description: |
+  expect_output_regex validates command output against a POSIX Extended
+  Regular Expression pattern using grep -qE. Supports patterns like
+  [0-9]+, .*, character classes, etc.
+
+setup:
+  - run: printf 'name: regex pass\ntest:\n  command: echo "version 1.2.3"\n  expect_output_regex: "version [0-9]+"\n' > /tmp/induct-regex-test.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-regex-test.yaml 2>&1
+  expect_output_contains: "[PASS]"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-regex-test.yaml

@@ -1,0 +1,16 @@
+name: working_dir sets command working directory
+description: |
+  The working_dir field changes the working directory before
+  executing the command. The command runs in the specified directory.
+
+setup:
+  - run: mkdir -p /tmp/induct-workdir-test && printf 'name: workdir pass\ntest:\n  command: pwd\n  working_dir: /tmp/induct-workdir-test\n  expect_output_contains: /tmp/induct-workdir-test\n' > /tmp/induct-workdir-spec.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-workdir-spec.yaml 2>&1
+  expect_output_contains: "[PASS]"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-workdir-spec.yaml
+  - run: rmdir /tmp/induct-workdir-test

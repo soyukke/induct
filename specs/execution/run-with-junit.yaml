@@ -1,0 +1,15 @@
+name: --junit flag outputs JUnit XML
+description: |
+  The --junit flag generates JUnit XML output to stdout instead of
+  the default text format. The output contains testsuites and testcase elements.
+
+setup:
+  - run: printf 'name: junit test\ntest:\n  command: echo hello\n  expect_output_contains: hello\n' > /tmp/induct-junit-spec.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-junit-spec.yaml --junit 2>&1
+  expect_output_contains: "<testsuites"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-junit-spec.yaml

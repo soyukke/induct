@@ -1,0 +1,15 @@
+name: --fail-fast stops on first failure
+description: |
+  The --fail-fast flag causes run-dir to stop execution after
+  the first test failure instead of running all specs.
+
+setup:
+  - run: mkdir -p /tmp/induct-failfast-dir && printf 'name: will fail\ntest:\n  command: echo wrong\n  expect_output_contains: nonexistent\n' > /tmp/induct-failfast-dir/01-fail.yaml && printf 'name: would pass\ntest:\n  command: echo hello\n  expect_output_contains: hello\n' > /tmp/induct-failfast-dir/02-pass.yaml
+
+test:
+  command: ./zig-out/bin/induct run-dir /tmp/induct-failfast-dir --fail-fast 2>&1
+  expect_output_contains: "[FAIL]"
+  expect_exit_code: 1
+
+teardown:
+  - run: rm -rf /tmp/induct-failfast-dir

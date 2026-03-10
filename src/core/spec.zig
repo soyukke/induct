@@ -29,29 +29,47 @@ pub const Spec = struct {
     }
 };
 
+pub const EnvVar = struct {
+    key: []const u8,
+    value: []const u8,
+
+    pub fn deinit(self: EnvVar, allocator: Allocator) void {
+        allocator.free(self.key);
+        allocator.free(self.value);
+    }
+};
+
 pub const TestCase = struct {
     command: []const u8,
     input: ?[]const u8 = null,
     expect_output: ?[]const u8 = null,
     expect_output_contains: ?[]const u8 = null,
+    expect_output_not_contains: ?[]const u8 = null,
+    expect_output_regex: ?[]const u8 = null,
+    expect_stderr: ?[]const u8 = null,
+    expect_stderr_contains: ?[]const u8 = null,
     expect_exit_code: i32 = 0,
     generate: bool = false,
     target_path: ?[]const u8 = null,
+    env: ?[]const EnvVar = null,
+    working_dir: ?[]const u8 = null,
+    timeout_ms: ?u64 = null,
 
     pub fn deinit(self: *TestCase, allocator: Allocator) void {
         allocator.free(self.command);
-        if (self.input) |inp| {
-            allocator.free(inp);
+        if (self.input) |inp| allocator.free(inp);
+        if (self.expect_output) |out| allocator.free(out);
+        if (self.expect_output_contains) |out| allocator.free(out);
+        if (self.expect_output_not_contains) |out| allocator.free(out);
+        if (self.expect_output_regex) |out| allocator.free(out);
+        if (self.expect_stderr) |out| allocator.free(out);
+        if (self.expect_stderr_contains) |out| allocator.free(out);
+        if (self.target_path) |path| allocator.free(path);
+        if (self.env) |env_vars| {
+            for (env_vars) |ev| ev.deinit(allocator);
+            allocator.free(env_vars);
         }
-        if (self.expect_output) |out| {
-            allocator.free(out);
-        }
-        if (self.expect_output_contains) |out| {
-            allocator.free(out);
-        }
-        if (self.target_path) |path| {
-            allocator.free(path);
-        }
+        if (self.working_dir) |wd| allocator.free(wd);
     }
 };
 

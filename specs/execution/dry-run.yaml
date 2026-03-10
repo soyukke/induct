@@ -1,0 +1,9 @@
+name: --dry-run shows commands without executing
+description: |
+  The --dry-run flag displays what would be executed without
+  actually running the commands. Output shows [DRY-RUN] prefix.
+
+test:
+  command: ./zig-out/bin/induct run specs/examples/echo.yaml --dry-run 2>&1
+  expect_output_contains: "[DRY-RUN]"
+  expect_exit_code: 0

@@ -1,0 +1,9 @@
+name: init command outputs template
+description: |
+  induct init outputs a template spec YAML to stdout.
+  The template includes all available fields as comments for reference.
+
+test:
+  command: ./zig-out/bin/induct init
+  expect_output_contains: "name: my spec"
+  expect_exit_code: 0

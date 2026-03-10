@@ -1,0 +1,15 @@
+name: validate command rejects invalid spec
+description: |
+  induct validate <spec.yaml> reports INVALID and exits 1
+  when the spec file has syntax errors or missing required fields.
+
+setup:
+  - run: printf 'this is not valid yaml content without name field\n' > /tmp/induct-validate-invalid.yaml
+
+test:
+  command: ./zig-out/bin/induct validate /tmp/induct-validate-invalid.yaml 2>&1
+  expect_output_contains: "INVALID"
+  expect_exit_code: 1
+
+teardown:
+  - run: rm -f /tmp/induct-validate-invalid.yaml

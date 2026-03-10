@@ -1,0 +1,17 @@
+name: timeout_ms kills long-running commands
+description: |
+  The timeout_ms field sets a maximum execution time in milliseconds.
+  If the command exceeds the timeout, it is killed and the test fails
+  with a timeout indication.
+
+setup:
+  - run: printf 'name: timeout fail\ntest:\n  command: sleep 10\n  timeout_ms: 500\n  expect_exit_code: 0\n' > /tmp/induct-timeout-test.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-timeout-test.yaml 2>&1
+  expect_output_contains: "[FAIL]"
+  expect_exit_code: 1
+  timeout_ms: 10000
+
+teardown:
+  - run: rm -f /tmp/induct-timeout-test.yaml

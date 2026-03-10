@@ -1,0 +1,15 @@
+name: -j flag runs specs in parallel
+description: |
+  The -j flag sets the number of parallel jobs for run-dir.
+  Multiple specs execute concurrently, improving throughput.
+
+setup:
+  - run: mkdir -p /tmp/induct-parallel-dir && printf 'name: par test 1\ntest:\n  command: echo one\n  expect_output_contains: one\n' > /tmp/induct-parallel-dir/one.yaml && printf 'name: par test 2\ntest:\n  command: echo two\n  expect_output_contains: two\n' > /tmp/induct-parallel-dir/two.yaml
+
+test:
+  command: ./zig-out/bin/induct run-dir /tmp/induct-parallel-dir -j2 2>&1
+  expect_output_contains: "passed"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -rf /tmp/induct-parallel-dir

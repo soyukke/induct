@@ -48,19 +48,27 @@ src/
 name: spec name
 description: optional description
 
-setup:                          # Optional pre-test commands
+setup:                                    # Optional pre-test commands
   - run: echo "setup"
 
 test:
-  command: echo hello           # Required: command to execute
-  input: "stdin data"           # Optional: stdin input
-  expect_output: "hello\n"      # Optional: exact output match
-  expect_output_contains: "llo" # Optional: substring match
-  expect_exit_code: 0           # Optional: expected exit code
+  command: echo hello                     # Required: command to execute
+  input: "stdin data"                     # Optional: stdin input
+  expect_output: "hello\n"               # Optional: exact output match
+  expect_output_contains: "llo"          # Optional: substring match
+  expect_output_not_contains: "error"    # Optional: negative substring match
+  expect_output_regex: "hel+"            # Optional: regex match (POSIX ERE via grep -E)
+  expect_stderr: "warn\n"               # Optional: exact stderr match
+  expect_stderr_contains: "warn"         # Optional: stderr substring match
+  expect_exit_code: 0                    # Optional: expected exit code (default: 0)
+  env:                                   # Optional: environment variables
+    KEY: value
+  working_dir: /path/to/dir             # Optional: working directory
+  timeout_ms: 5000                       # Optional: timeout in milliseconds
 
-teardown:                       # Optional cleanup
+teardown:                                # Optional cleanup
   - run: rm -f /tmp/test.txt
-  - kill_process: server        # Kill named process
+  - kill_process: server                 # Kill named process
 ```
 
 ## CLI Usage
@@ -68,12 +76,14 @@ teardown:                       # Optional cleanup
 ```bash
 induct run <spec.yaml>     # Run single spec
 induct run-dir <dir>       # Run all .yaml/.yml specs in directory
+induct init [file.yaml]    # Generate template spec file
+induct validate <spec.yaml> # Validate spec syntax without executing
 induct mcp                 # Start MCP server mode
 induct version             # Show version
 induct help                # Show help
 ```
 
-Flags: `-v/--verbose`, `--json`
+Flags: `-v/--verbose`, `--json`, `--junit`, `--fail-fast`, `--dry-run`, `--filter <pattern>`, `-j <N>`, `--with-setup`
 
 ## Key Implementation Details
 

@@ -1,0 +1,9 @@
+name: validate command accepts valid spec
+description: |
+  induct validate <spec.yaml> parses the spec without executing it.
+  Reports VALID and exits 0 for well-formed specs.
+
+test:
+  command: ./zig-out/bin/induct validate specs/examples/echo.yaml 2>&1
+  expect_output_contains: "VALID"
+  expect_exit_code: 0

@@ -5,6 +5,7 @@ const Spec = spec_mod.Spec;
 const TestCase = spec_mod.TestCase;
 const SetupCommand = spec_mod.SetupCommand;
 const TeardownCommand = spec_mod.TeardownCommand;
+const EnvVar = spec_mod.EnvVar;
 const ProjectSpec = spec_mod.ProjectSpec;
 
 pub const ParseError = error{
@@ -505,117 +506,164 @@ pub const Parser = struct {
     }
 };
 
-pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
-    var parser = Parser.init(allocator, source);
-    var yaml = try parser.parse();
-    defer yaml.deinit(allocator);
+fn parseEnvVars(allocator: Allocator, test_map: *std.StringHashMap(YamlValue)) ParseError!?[]const EnvVar {
+    const env_val_ptr = test_map.getPtr("env") orelse return null;
+    const env_map = env_val_ptr.getMap() orelse return null;
 
-    var map = yaml.getMap() orelse return ParseError.InvalidYaml;
+    var env_vars = allocator.alloc(EnvVar, env_map.count()) catch return ParseError.OutOfMemory;
+    var iter = env_map.iterator();
+    var idx: usize = 0;
+    while (iter.next()) |entry| {
+        const val_owned: ?[]const u8 = if (entry.value_ptr.getInt()) |int_val|
+            std.fmt.allocPrint(allocator, "{d}", .{int_val}) catch return ParseError.OutOfMemory
+        else
+            null;
+        defer if (val_owned) |v| allocator.free(v);
 
-    // Get required name field
-    const name_val = map.get("name") orelse return ParseError.MissingRequiredField;
-    const name = name_val.getString() orelse return ParseError.InvalidYaml;
+        const val_str = val_owned orelse if (entry.value_ptr.getString()) |s|
+            s
+        else if (entry.value_ptr.getBool()) |b|
+            (if (b) "true" else "false")
+        else
+            return ParseError.InvalidYaml;
 
-    // Get optional description
-    const description = if (map.get("description")) |desc_val|
-        desc_val.getString()
-    else
-        null;
+        env_vars[idx] = .{
+            .key = allocator.dupe(u8, entry.key_ptr.*) catch return ParseError.OutOfMemory,
+            .value = allocator.dupe(u8, val_str) catch return ParseError.OutOfMemory,
+        };
+        idx += 1;
+    }
+    return env_vars;
+}
 
-    // Get required test_case (or test)
-    const test_val = map.get("test_case") orelse map.get("test") orelse return ParseError.MissingRequiredField;
-    var test_map = blk: {
-        var tv = test_val;
-        break :blk tv.getMap() orelse return ParseError.InvalidYaml;
-    };
-
+fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlValue)) ParseError!TestCase {
     const command_val = test_map.get("command") orelse return ParseError.MissingRequiredField;
     const command = command_val.getString() orelse return ParseError.InvalidYaml;
 
     const input = if (test_map.get("input")) |v| v.getString() else null;
     const expect_output = if (test_map.get("expect_output")) |v| v.getString() else null;
     const expect_output_contains = if (test_map.get("expect_output_contains")) |v| v.getString() else null;
+    const expect_output_not_contains = if (test_map.get("expect_output_not_contains")) |v| v.getString() else null;
+    const expect_output_regex = if (test_map.get("expect_output_regex")) |v| v.getString() else null;
+    const expect_stderr = if (test_map.get("expect_stderr")) |v| v.getString() else null;
+    const expect_stderr_contains = if (test_map.get("expect_stderr_contains")) |v| v.getString() else null;
     const expect_exit_code: i32 = if (test_map.get("expect_exit_code")) |v|
         @intCast(v.getInt() orelse 0)
     else
         0;
     const generate: bool = if (test_map.get("generate")) |v| v.getBool() orelse false else false;
     const target_path = if (test_map.get("target_path")) |v| v.getString() else null;
+    const working_dir = if (test_map.get("working_dir")) |v| v.getString() else null;
+    const timeout_ms: ?u64 = if (test_map.get("timeout_ms")) |v|
+        if (v.getInt()) |i| @as(?u64, @intCast(i)) else null
+    else
+        null;
 
-    // Parse setup commands
-    var setup: ?[]const SetupCommand = null;
-    if (map.get("setup")) |setup_val| {
-        if (setup_val.getList()) |list| {
-            var setup_cmds = allocator.alloc(SetupCommand, list.len) catch return ParseError.OutOfMemory;
-            for (list, 0..) |item, i| {
-                var item_copy = item;
-                if (item_copy.getMap()) |item_map| {
-                    if (item_map.get("run")) |run_val| {
-                        const run_str = run_val.getString() orelse return ParseError.InvalidYaml;
-                        setup_cmds[i] = .{
-                            .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
-                        };
-                    } else {
-                        allocator.free(setup_cmds);
-                        return ParseError.InvalidYaml;
-                    }
-                } else if (item.getString()) |run_str| {
-                    setup_cmds[i] = .{
-                        .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
-                    };
-                } else {
-                    allocator.free(setup_cmds);
-                    return ParseError.InvalidYaml;
-                }
+    const env = try parseEnvVars(allocator, test_map);
+
+    return TestCase{
+        .command = allocator.dupe(u8, command) catch return ParseError.OutOfMemory,
+        .input = if (input) |i| allocator.dupe(u8, i) catch return ParseError.OutOfMemory else null,
+        .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_output_contains = if (expect_output_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_output_not_contains = if (expect_output_not_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_output_regex = if (expect_output_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_stderr = if (expect_stderr) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_stderr_contains = if (expect_stderr_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_exit_code = expect_exit_code,
+        .generate = generate,
+        .target_path = if (target_path) |tp| allocator.dupe(u8, tp) catch return ParseError.OutOfMemory else null,
+        .env = env,
+        .working_dir = if (working_dir) |wd| allocator.dupe(u8, wd) catch return ParseError.OutOfMemory else null,
+        .timeout_ms = timeout_ms,
+    };
+}
+
+fn parseSetupCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const SetupCommand {
+    const setup_val = map.get("setup") orelse return null;
+    const list = setup_val.getList() orelse return null;
+
+    var setup_cmds = allocator.alloc(SetupCommand, list.len) catch return ParseError.OutOfMemory;
+    for (list, 0..) |item, i| {
+        var item_copy = item;
+        if (item_copy.getMap()) |item_map| {
+            if (item_map.get("run")) |run_val| {
+                const run_str = run_val.getString() orelse return ParseError.InvalidYaml;
+                setup_cmds[i] = .{
+                    .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
+                };
+            } else {
+                allocator.free(setup_cmds);
+                return ParseError.InvalidYaml;
             }
-            setup = setup_cmds;
+        } else if (item.getString()) |run_str| {
+            setup_cmds[i] = .{
+                .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
+            };
+        } else {
+            allocator.free(setup_cmds);
+            return ParseError.InvalidYaml;
         }
     }
+    return setup_cmds;
+}
 
-    // Parse teardown commands
-    var teardown: ?[]const TeardownCommand = null;
-    if (map.get("teardown")) |teardown_val| {
-        if (teardown_val.getList()) |list| {
-            var teardown_cmds = allocator.alloc(TeardownCommand, list.len) catch return ParseError.OutOfMemory;
-            for (list, 0..) |item, i| {
-                var item_copy = item;
-                if (item_copy.getMap()) |item_map| {
-                    if (item_map.get("run")) |run_val| {
-                        const run_str = run_val.getString() orelse return ParseError.InvalidYaml;
-                        teardown_cmds[i] = .{
-                            .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
-                        };
-                    } else if (item_map.get("kill_process")) |kill_val| {
-                        const kill_str = kill_val.getString() orelse return ParseError.InvalidYaml;
-                        teardown_cmds[i] = .{
-                            .kill_process = allocator.dupe(u8, kill_str) catch return ParseError.OutOfMemory,
-                        };
-                    } else {
-                        allocator.free(teardown_cmds);
-                        return ParseError.InvalidYaml;
-                    }
-                } else {
-                    allocator.free(teardown_cmds);
-                    return ParseError.InvalidYaml;
-                }
+fn parseTeardownCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const TeardownCommand {
+    const teardown_val = map.get("teardown") orelse return null;
+    const list = teardown_val.getList() orelse return null;
+
+    var teardown_cmds = allocator.alloc(TeardownCommand, list.len) catch return ParseError.OutOfMemory;
+    for (list, 0..) |item, i| {
+        var item_copy = item;
+        if (item_copy.getMap()) |item_map| {
+            if (item_map.get("run")) |run_val| {
+                const run_str = run_val.getString() orelse return ParseError.InvalidYaml;
+                teardown_cmds[i] = .{
+                    .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
+                };
+            } else if (item_map.get("kill_process")) |kill_val| {
+                const kill_str = kill_val.getString() orelse return ParseError.InvalidYaml;
+                teardown_cmds[i] = .{
+                    .kill_process = allocator.dupe(u8, kill_str) catch return ParseError.OutOfMemory,
+                };
+            } else {
+                allocator.free(teardown_cmds);
+                return ParseError.InvalidYaml;
             }
-            teardown = teardown_cmds;
+        } else {
+            allocator.free(teardown_cmds);
+            return ParseError.InvalidYaml;
         }
     }
+    return teardown_cmds;
+}
+
+pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
+    var yaml_parser = Parser.init(allocator, source);
+    var yaml = try yaml_parser.parse();
+    defer yaml.deinit(allocator);
+
+    var map = yaml.getMap() orelse return ParseError.InvalidYaml;
+
+    const name_val = map.get("name") orelse return ParseError.MissingRequiredField;
+    const name = name_val.getString() orelse return ParseError.InvalidYaml;
+    const description = if (map.get("description")) |desc_val| desc_val.getString() else null;
+
+    const test_val = map.get("test_case") orelse map.get("test") orelse return ParseError.MissingRequiredField;
+    const test_map = blk: {
+        var tv = test_val;
+        break :blk tv.getMap() orelse return ParseError.InvalidYaml;
+    };
+
+    const test_case = try parseTestCaseFromMap(allocator, test_map);
+    const setup = try parseSetupCommands(allocator, map);
+    const teardown = try parseTeardownCommands(allocator, map);
 
     return Spec{
         .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
         .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
         .setup = setup,
-        .test_case = .{
-            .command = allocator.dupe(u8, command) catch return ParseError.OutOfMemory,
-            .input = if (input) |i| allocator.dupe(u8, i) catch return ParseError.OutOfMemory else null,
-            .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-            .expect_output_contains = if (expect_output_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-            .expect_exit_code = expect_exit_code,
-            .generate = generate,
-            .target_path = if (target_path) |tp| allocator.dupe(u8, tp) catch return ParseError.OutOfMemory else null,
-        },
+        .test_case = test_case,
         .teardown = teardown,
     };
 }
@@ -697,110 +745,25 @@ fn parseSpecFromYamlValue(allocator: Allocator, yaml_val: YamlValue) ParseError!
     var val_copy = yaml_val;
     var map = val_copy.getMap() orelse return ParseError.InvalidYaml;
 
-    // Get required name field
     const name_val = map.get("name") orelse return ParseError.MissingRequiredField;
     const name = name_val.getString() orelse return ParseError.InvalidYaml;
+    const description = if (map.get("description")) |desc_val| desc_val.getString() else null;
 
-    // Get optional description
-    const description = if (map.get("description")) |desc_val|
-        desc_val.getString()
-    else
-        null;
-
-    // Get required test_case (or test)
     const test_val = map.get("test_case") orelse map.get("test") orelse return ParseError.MissingRequiredField;
-    var test_map = blk: {
+    const test_map = blk: {
         var tv = test_val;
         break :blk tv.getMap() orelse return ParseError.InvalidYaml;
     };
 
-    const command_val = test_map.get("command") orelse return ParseError.MissingRequiredField;
-    const command = command_val.getString() orelse return ParseError.InvalidYaml;
-
-    const input = if (test_map.get("input")) |v| v.getString() else null;
-    const expect_output = if (test_map.get("expect_output")) |v| v.getString() else null;
-    const expect_output_contains = if (test_map.get("expect_output_contains")) |v| v.getString() else null;
-    const expect_exit_code: i32 = if (test_map.get("expect_exit_code")) |v|
-        @intCast(v.getInt() orelse 0)
-    else
-        0;
-    const generate: bool = if (test_map.get("generate")) |v| v.getBool() orelse false else false;
-    const target_path = if (test_map.get("target_path")) |v| v.getString() else null;
-
-    // Parse setup commands
-    var setup: ?[]const SetupCommand = null;
-    if (map.get("setup")) |setup_val| {
-        if (setup_val.getList()) |list| {
-            var setup_cmds = allocator.alloc(SetupCommand, list.len) catch return ParseError.OutOfMemory;
-            for (list, 0..) |item, i| {
-                var item_copy = item;
-                if (item_copy.getMap()) |item_map| {
-                    if (item_map.get("run")) |run_val| {
-                        const run_str = run_val.getString() orelse return ParseError.InvalidYaml;
-                        setup_cmds[i] = .{
-                            .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
-                        };
-                    } else {
-                        allocator.free(setup_cmds);
-                        return ParseError.InvalidYaml;
-                    }
-                } else if (item.getString()) |run_str| {
-                    setup_cmds[i] = .{
-                        .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
-                    };
-                } else {
-                    allocator.free(setup_cmds);
-                    return ParseError.InvalidYaml;
-                }
-            }
-            setup = setup_cmds;
-        }
-    }
-
-    // Parse teardown commands
-    var teardown: ?[]const TeardownCommand = null;
-    if (map.get("teardown")) |teardown_val| {
-        if (teardown_val.getList()) |list| {
-            var teardown_cmds = allocator.alloc(TeardownCommand, list.len) catch return ParseError.OutOfMemory;
-            for (list, 0..) |item, i| {
-                var item_copy = item;
-                if (item_copy.getMap()) |item_map| {
-                    if (item_map.get("run")) |run_val| {
-                        const run_str = run_val.getString() orelse return ParseError.InvalidYaml;
-                        teardown_cmds[i] = .{
-                            .run = allocator.dupe(u8, run_str) catch return ParseError.OutOfMemory,
-                        };
-                    } else if (item_map.get("kill_process")) |kill_val| {
-                        const kill_str = kill_val.getString() orelse return ParseError.InvalidYaml;
-                        teardown_cmds[i] = .{
-                            .kill_process = allocator.dupe(u8, kill_str) catch return ParseError.OutOfMemory,
-                        };
-                    } else {
-                        allocator.free(teardown_cmds);
-                        return ParseError.InvalidYaml;
-                    }
-                } else {
-                    allocator.free(teardown_cmds);
-                    return ParseError.InvalidYaml;
-                }
-            }
-            teardown = teardown_cmds;
-        }
-    }
+    const test_case = try parseTestCaseFromMap(allocator, test_map);
+    const setup = try parseSetupCommands(allocator, map);
+    const teardown = try parseTeardownCommands(allocator, map);
 
     return Spec{
         .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
         .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
         .setup = setup,
-        .test_case = .{
-            .command = allocator.dupe(u8, command) catch return ParseError.OutOfMemory,
-            .input = if (input) |inp| allocator.dupe(u8, inp) catch return ParseError.OutOfMemory else null,
-            .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-            .expect_output_contains = if (expect_output_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-            .expect_exit_code = expect_exit_code,
-            .generate = generate,
-            .target_path = if (target_path) |tp| allocator.dupe(u8, tp) catch return ParseError.OutOfMemory else null,
-        },
+        .test_case = test_case,
         .teardown = teardown,
     };
 }

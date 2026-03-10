@@ -1,0 +1,16 @@
+name: env field sets environment variables
+description: |
+  The env field in a test case sets environment variables that are
+  available to the command during execution. Variables are exported
+  using shell export syntax.
+
+setup:
+  - run: printf 'name: env pass\ntest:\n  command: echo $MY_TEST_VAR\n  env:\n    MY_TEST_VAR: hello_from_env\n  expect_output_contains: hello_from_env\n' > /tmp/induct-env-test.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-env-test.yaml 2>&1
+  expect_output_contains: "[PASS]"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-env-test.yaml

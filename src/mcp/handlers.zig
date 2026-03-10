@@ -315,20 +315,28 @@ pub fn handleToolsCall(
             \\
             \\## Single Spec (*.yaml)
             \\```yaml
-            \\name: spec name              # Required: name of the spec
-            \\description: optional desc   # Optional: description
+            \\name: spec name                      # Required: name of the spec
+            \\description: optional desc           # Optional: description
             \\
-            \\setup:                       # Optional: pre-test commands
+            \\setup:                               # Optional: pre-test commands
             \\  - run: echo "setup"
             \\
-            \\test:                        # Required: test definition
-            \\  command: echo hello        # Required: command to execute
-            \\  input: "stdin data"        # Optional: stdin input
-            \\  expect_output: "hello\n"   # Optional: exact output match
-            \\  expect_output_contains: x  # Optional: substring match
-            \\  expect_exit_code: 0        # Optional: expected exit code (default: 0)
+            \\test:                                # Required: test definition
+            \\  command: echo hello                # Required: command to execute
+            \\  input: "stdin data"                # Optional: stdin input
+            \\  expect_output: "hello\n"           # Optional: exact output match
+            \\  expect_output_contains: "llo"      # Optional: substring match
+            \\  expect_output_not_contains: "err"  # Optional: negative substring match
+            \\  expect_output_regex: "hel+"        # Optional: regex match (POSIX ERE)
+            \\  expect_stderr: "warn\n"            # Optional: exact stderr match
+            \\  expect_stderr_contains: "warn"     # Optional: stderr substring match
+            \\  expect_exit_code: 0                # Optional: expected exit code (default: 0)
+            \\  env:                               # Optional: environment variables
+            \\    KEY: value
+            \\  working_dir: /path/to/dir          # Optional: working directory
+            \\  timeout_ms: 5000                   # Optional: timeout in milliseconds
             \\
-            \\teardown:                    # Optional: cleanup commands
+            \\teardown:                            # Optional: cleanup commands
             \\  - run: rm -f /tmp/test.txt
             \\  - kill_process: server
             \\```

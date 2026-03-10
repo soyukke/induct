@@ -46,6 +46,10 @@ include:
   - cli/version.yaml
   - cli/unknown-command.yaml
   - cli/no-args.yaml
+  - cli/init.yaml
+  - cli/init-file.yaml
+  - cli/validate-valid.yaml
+  - cli/validate-invalid.yaml
 
   # Execution tests
   - execution/run-passing-spec.yaml
@@ -53,6 +57,17 @@ include:
   - execution/run-with-json.yaml
   - execution/run-with-verbose.yaml
   - execution/run-dir.yaml
+  - execution/expect-not-contains.yaml
+  - execution/expect-regex.yaml
+  - execution/expect-stderr.yaml
+  - execution/env-vars.yaml
+  - execution/working-dir.yaml
+  - execution/timeout.yaml
+  - execution/run-with-junit.yaml
+  - execution/fail-fast.yaml
+  - execution/dry-run.yaml
+  - execution/filter.yaml
+  - execution/parallel.yaml
 
   # Error handling tests
   - errors/file-not-found.yaml

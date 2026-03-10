@@ -1,0 +1,16 @@
+name: --filter runs only matching specs
+description: |
+  The --filter flag filters specs by name substring match.
+  Only specs whose name contains the filter string are executed.
+
+setup:
+  - run: mkdir -p /tmp/induct-filter-dir && printf 'name: alpha test\ntest:\n  command: echo alpha\n  expect_output_contains: alpha\n' > /tmp/induct-filter-dir/alpha.yaml && printf 'name: beta test\ntest:\n  command: echo beta\n  expect_output_contains: beta\n' > /tmp/induct-filter-dir/beta.yaml
+
+test:
+  command: ./zig-out/bin/induct run-dir /tmp/induct-filter-dir --filter alpha 2>&1
+  expect_output_contains: "alpha"
+  expect_output_not_contains: "beta test"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -rf /tmp/induct-filter-dir

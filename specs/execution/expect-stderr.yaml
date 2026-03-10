@@ -1,0 +1,15 @@
+name: expect_stderr_contains validates stderr output
+description: |
+  expect_stderr and expect_stderr_contains validate the standard error
+  output of a command, separate from stdout validation.
+
+setup:
+  - run: printf 'name: stderr pass\ntest:\n  command: echo "warning message" >&2\n  expect_stderr_contains: warning\n' > /tmp/induct-stderr-test.yaml
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-stderr-test.yaml 2>&1
+  expect_output_contains: "[PASS]"
+  expect_exit_code: 0
+
+teardown:
+  - run: rm -f /tmp/induct-stderr-test.yaml

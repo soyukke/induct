@@ -31,15 +31,18 @@ pub const SpecResult = struct {
     passed: bool,
     status: SpecStatus = .passed,
     actual_output: []const u8,
+    actual_stderr: []const u8 = "",
     actual_exit_code: i32,
     error_message: ?[]const u8,
     duration_ms: u64,
+    timed_out: bool = false,
     generate_info: ?GenerateInfo = null,
 
     pub fn deinit(self: *SpecResult, allocator: Allocator) void {
         allocator.free(self.id);
         allocator.free(self.spec_name);
         allocator.free(self.actual_output);
+        allocator.free(self.actual_stderr);
         if (self.error_message) |msg| {
             allocator.free(msg);
         }
