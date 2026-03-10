@@ -5,6 +5,7 @@ pub const Command = union(enum) {
     run_dir: RunDirArgs,
     init_cmd: InitArgs,
     validate_cmd: ValidateArgs,
+    list_cmd: ListArgs,
     schema: void,
     version: void,
     help: void,
@@ -48,6 +49,11 @@ pub const ValidateArgs = struct {
     spec_path: []const u8,
 };
 
+pub const ListArgs = struct {
+    dir_path: []const u8,
+    markdown: bool = false,
+};
+
 pub const ParseError = error{
     MissingCommand,
     MissingArgument,
@@ -67,6 +73,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
     var fail_fast = false;
     var dry_run = false;
     var with_setup = false;
+    var markdown = false;
     var template: TemplateType = .basic;
     var filter: ?[]const u8 = null;
     var max_jobs: usize = 1;
@@ -88,6 +95,8 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
             dry_run = true;
         } else if (std.mem.eql(u8, arg, "--with-setup")) {
             with_setup = true;
+        } else if (std.mem.eql(u8, arg, "--markdown")) {
+            markdown = true;
         } else if (std.mem.eql(u8, arg, "--template")) {
             i += 1;
             if (i >= args.len) return ParseError.MissingArgument;
@@ -157,6 +166,16 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
         return Command{
             .validate_cmd = .{
                 .spec_path = positional.?,
+            },
+        };
+    } else if (std.mem.eql(u8, cmd, "list")) {
+        if (positional == null) {
+            return ParseError.MissingArgument;
+        }
+        return Command{
+            .list_cmd = .{
+                .dir_path = positional.?,
+                .markdown = markdown,
             },
         };
     } else if (std.mem.eql(u8, cmd, "schema")) {

@@ -1,0 +1,7 @@
+name: list specs in markdown format
+description: induct list --markdown outputs a markdown table
+
+test:
+  command: ./zig-out/bin/induct list --markdown specs/examples/
+  expect_output_contains: "| Name |"
+  expect_exit_code: 0

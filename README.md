@@ -111,8 +111,11 @@ induct init project.yaml --template project  # プロジェクト用テンプレ
 ### 基本形
 
 ```yaml
-name: string                            # 必須: 仕様名
-description: string                     # 任意: 説明
+name: string                            # 必須: 仕様のタイトル
+description: |                          # 推奨: 仕様の本文
+  何をするシステムか、どう振る舞うべきかを書く。
+  name がタイトル、description が仕様本体。
+  test: セクションがその検証手段。
 
 test:
   command: string                       # 必須: 実行コマンド
@@ -192,6 +195,8 @@ include:                                # 外部ファイルを参照
 
 ```yaml
 name: echo test
+description: |
+  echo に文字列を渡すと、その文字列が改行付きで stdout に出力される。
 test:
   command: echo "hello"
   expect_output: "hello\n"
@@ -200,7 +205,10 @@ test:
 ### API レスポンスの検証
 
 ```yaml
-name: POST /users
+name: ユーザー作成API
+description: |
+  POST /users に名前を送ると、IDが振られたユーザーが返る。
+  レスポンスには "id" フィールドが含まれること。
 test:
   command: curl -s -X POST -H "Content-Type: application/json" -d '{"name":"alice"}' http://localhost:8080/users
   expect_output_contains: '"id":'
@@ -210,7 +218,10 @@ test:
 ### シナリオテスト（マルチステップ）
 
 ```yaml
-name: user CRUD flow
+name: ユーザーCRUDフロー
+description: |
+  ユーザーの作成・取得・削除が一連の操作として正しく動作する。
+  作成したユーザーを取得でき、削除後は正常終了する。
 setup:
   - run: start-server &
 
@@ -234,7 +245,10 @@ teardown:
 ### エラーケースの検証
 
 ```yaml
-name: missing file error
+name: 存在しないファイルの読み取り
+description: |
+  存在しないファイルを cat すると、終了コード1で
+  stderr に "No such file" を含むエラーメッセージが出力される。
 test:
   command: cat /nonexistent
   expect_exit_code: 1

@@ -1,0 +1,7 @@
+name: list specs in directory
+description: induct list shows name and description of each spec file
+
+test:
+  command: ./zig-out/bin/induct list specs/examples/
+  expect_output_contains: "echo test"
+  expect_exit_code: 0

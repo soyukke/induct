@@ -1,5 +1,6 @@
 name: exit code test
-description: Tests command that returns non-zero exit code
+description: |
+  コマンドが非ゼロの終了コードを返した場合、その値を検証できる。
 
 test:
   command: sh -c "exit 1"

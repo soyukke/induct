@@ -1,5 +1,6 @@
 name: cat with stdin
-description: Tests cat command reading from stdin
+description: |
+  cat は stdin から受け取ったデータをそのまま stdout に出力する。
 
 test:
   command: cat

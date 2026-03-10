@@ -1,5 +1,6 @@
 name: echo test
-description: Tests the echo command with simple output
+description: |
+  echo に文字列を渡すと、その文字列が改行付きで stdout に出力される。
 test:
   command: echo hello
   expect_output: "hello\n"

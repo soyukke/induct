@@ -1,5 +1,7 @@
 name: file create and read
-description: Tests file creation with setup and teardown
+description: |
+  setup でファイルを作成し、コマンドでその内容を読み取れる。
+  teardown で一時ファイルを確実に削除する。
 
 setup:
   - run: echo "test content" > /tmp/induct-test.txt

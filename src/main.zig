@@ -269,6 +269,10 @@ pub fn main() !void {
                 stdout.flush() catch {};
             }
         },
+        .list_cmd => |list_args| {
+            try handleList(allocator, list_args.dir_path, list_args.markdown, stdout);
+            stdout.flush() catch {};
+        },
         .schema => {
             induct.cli.reporter.printSchema(stdout);
             stdout.flush() catch {};
@@ -328,6 +332,84 @@ fn handleDryRunDir(allocator: std.mem.Allocator, dir_path: []const u8, reporter:
         };
         defer spec.deinit(allocator);
         reporter.reportDryRun(spec.name, spec.test_case.command, spec.setup != null, spec.teardown != null);
+    }
+}
+
+fn flattenOneLine(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
+    // Trim trailing whitespace/newlines, then replace internal newlines with spaces
+    const trimmed = std.mem.trimRight(u8, s, " \t\n\r");
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    for (trimmed) |c| {
+        if (c == '\n') {
+            // Skip if last char was already a space
+            if (out.items.len > 0 and out.items[out.items.len - 1] == ' ') continue;
+            try out.append(allocator, ' ');
+        } else {
+            try out.append(allocator, c);
+        }
+    }
+    return try out.toOwnedSlice(allocator);
+}
+
+fn handleList(allocator: std.mem.Allocator, dir_path: []const u8, markdown: bool, writer: anytype) !void {
+    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    defer dir.close();
+
+    const Entry = struct {
+        name: []const u8,
+        description: []const u8,
+        file: []const u8,
+    };
+
+    var entries: std.ArrayListUnmanaged(Entry) = .empty;
+    defer {
+        for (entries.items) |e| {
+            allocator.free(e.name);
+            if (e.description.len > 0) allocator.free(e.description);
+            allocator.free(e.file);
+        }
+        entries.deinit(allocator);
+    }
+
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
+
+        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
+        defer allocator.free(full_path);
+
+        var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
+        const name = try allocator.dupe(u8, spec.name);
+        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
+        const file = try allocator.dupe(u8, entry.name);
+        spec.deinit(allocator);
+
+        try entries.append(allocator, .{ .name = name, .description = desc, .file = file });
+    }
+
+    // Sort by filename
+    std.mem.sort(Entry, entries.items, {}, struct {
+        fn lessThan(_: void, a: Entry, b: Entry) bool {
+            return std.mem.order(u8, a.file, b.file) == .lt;
+        }
+    }.lessThan);
+
+    if (markdown) {
+        writer.print("| Name | File | Description |\n", .{}) catch {};
+        writer.print("|------|------|-------------|\n", .{}) catch {};
+        for (entries.items) |e| {
+            writer.print("| {s} | {s} | {s} |\n", .{ e.name, e.file, e.description }) catch {};
+        }
+    } else {
+        for (entries.items) |e| {
+            writer.print("{s}", .{e.file}) catch {};
+            writer.print("  {s}", .{e.name}) catch {};
+            if (e.description.len > 0) {
+                writer.print(" - {s}", .{e.description}) catch {};
+            }
+            writer.print("\n", .{}) catch {};
+        }
     }
 }
 

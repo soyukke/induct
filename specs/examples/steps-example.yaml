@@ -1,5 +1,7 @@
 name: steps example
-description: A basic multi-step spec
+description: |
+  複数のコマンドを順番に実行し、それぞれの出力を検証する。
+  ステップは順次実行され、失敗時は残りがスキップされる。
 
 steps:
   - name: step one

@@ -239,6 +239,7 @@ pub fn printHelp(writer: anytype) void {
         \\COMMANDS:
         \\    run <spec.yaml>      Run a spec and verify results
         \\    run-dir <dir>        Run all specs in a directory
+        \\    list <dir>           List specs in a directory (name, description)
         \\    validate <spec.yaml> Validate spec syntax without executing
         \\    schema               Show YAML spec schema reference
         \\    init [file.yaml]     Generate a template spec file
@@ -253,6 +254,7 @@ pub fn printHelp(writer: anytype) void {
         \\    --dry-run            Show what would be executed without running
         \\    --filter <pattern>   Filter specs by name substring (run-dir)
         \\    -j <N>               Run up to N specs in parallel (run-dir)
+        \\    --markdown            Output as markdown table (list)
         \\    --with-setup         Include setup/teardown in template (init)
         \\    --template <type>    Template type: basic, setup, api, cli, project (init)
         \\
@@ -273,8 +275,11 @@ pub fn printSchema(writer: anytype) void {
         \\## Single Spec (*.yaml)
         \\
         \\```yaml
-        \\name: string                            # Required: spec name
-        \\description: string                     # Optional: description
+        \\name: string                            # Required: spec name (title)
+        \\description: |                          # Recommended: the specification itself
+        \\  Describe WHAT the system should do.   #   This is the human-readable spec.
+        \\  name is the title, description is     #   Shown by `induct list`.
+        \\  the body. test: section verifies it.
         \\
         \\setup:                                  # Optional: pre-test commands
         \\  - run: echo "setup"
@@ -303,7 +308,7 @@ pub fn printSchema(writer: anytype) void {
         \\
         \\```yaml
         \\name: string                            # Required: spec name
-        \\description: string                     # Optional: description
+        \\description: string                     # Recommended: specification
         \\
         \\setup:                                  # Optional: pre-test commands (run once)
         \\  - run: echo "setup"
@@ -352,6 +357,53 @@ pub fn printSchema(writer: anytype) void {
         \\- `timeout_ms` kills the process if exceeded
         \\- `setup` commands run before the test (fail = test skipped)
         \\- `teardown` commands always run (even on test failure)
+        \\
+        \\## Writing Good Specs
+        \\
+        \\A spec has two parts: the specification (name + description)
+        \\and the verification (test/steps). Write description as if
+        \\explaining the requirement to a colleague:
+        \\
+        \\```yaml
+        \\name: User creation API
+        \\description: |
+        \\  POST /users with a name returns a new user with an assigned ID.
+        \\  The response must contain an "id" field.
+        \\
+        \\test:
+        \\  command: curl -s -X POST localhost:8080/users -d '{{"name":"alice"}}'
+        \\  expect_output_contains: '"id":'
+        \\```
+        \\
+        \\Use `induct list <dir>` to view all specs as a specification index.
+        \\
+        \\## Workflow
+        \\
+        \\1. Run `induct schema` to learn the spec format (this output)
+        \\2. Write a spec: name = what, description = why, test = verification
+        \\3. Run `induct validate <spec.yaml>` to check syntax
+        \\4. Run `induct run <spec.yaml>` to verify (expect FAIL)
+        \\5. Implement until the spec passes
+        \\6. Run `induct run <spec.yaml>` again (expect PASS)
+        \\7. Run `induct list <dir>` to review the spec index
+        \\
+        \\Example:
+        \\```bash
+        \\cat > specs/hello.yaml << 'EOF'
+        \\name: hello command
+        \\description: |
+        \\  ./hello prints "Hello, World!" to stdout and exits successfully.
+        \\test:
+        \\  command: ./hello
+        \\  expect_output: "Hello, World!\n"
+        \\EOF
+        \\
+        \\induct validate specs/hello.yaml
+        \\induct run specs/hello.yaml          # FAIL - not yet implemented
+        \\# ... implement ./hello ...
+        \\induct run specs/hello.yaml          # PASS
+        \\induct list specs/                   # review spec index
+        \\```
         \\
     , .{}) catch {};
 }
