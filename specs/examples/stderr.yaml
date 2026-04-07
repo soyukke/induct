@@ -1,0 +1,9 @@
+name: stderr check example
+description: |
+  expect_stderr_contains で stderr の出力を検証できる。
+  エラーメッセージやワーニングが期待通りに出力されているか確認するのに使う。
+
+test:
+  command: sh -c 'echo "warning: file not found" >&2; exit 0'
+  expect_stderr_contains: "warning"
+  expect_exit_code: 0

@@ -1,0 +1,10 @@
+name: working dir example
+description: |
+  working_dir でコマンドを実行する作業ディレクトリを変更できる。
+  pwd コマンドの出力が指定したディレクトリになることを検証する。
+
+test:
+  command: pwd
+  working_dir: /tmp
+  expect_output: "/tmp\n"
+  expect_exit_code: 0
