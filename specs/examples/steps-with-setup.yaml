@@ -1,0 +1,23 @@
+name: steps with setup and teardown
+description: |
+  steps と setup/teardown を組み合わせて複数ステップのシナリオを記述できる。
+  setup で共有リソースを準備し、steps で順次検証し、teardown でクリーンアップする。
+
+setup:
+  - run: echo "shared data" > /tmp/induct-steps-setup.txt
+
+steps:
+  - name: ファイルの存在を確認
+    command: cat /tmp/induct-steps-setup.txt
+    expect_output_contains: "shared data"
+
+  - name: ファイルに追記
+    command: sh -c 'echo "appended" >> /tmp/induct-steps-setup.txt && cat /tmp/induct-steps-setup.txt'
+    expect_output_contains: "appended"
+
+  - name: 行数を確認
+    command: wc -l /tmp/induct-steps-setup.txt
+    expect_output_contains: "2"
+
+teardown:
+  - run: rm -f /tmp/induct-steps-setup.txt

@@ -1,0 +1,10 @@
+name: timeout example
+description: |
+  timeout_ms でコマンドの最大実行時間をミリ秒単位で指定できる。
+  タイムアウト内に完了するコマンドは正常に終了する。
+
+test:
+  command: echo "done quickly"
+  timeout_ms: 5000
+  expect_output: "done quickly\n"
+  expect_exit_code: 0

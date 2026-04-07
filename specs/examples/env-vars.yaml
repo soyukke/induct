@@ -1,0 +1,11 @@
+name: env vars example
+description: |
+  env フィールドで環境変数を設定してコマンドに渡せる。
+  設定した環境変数はそのコマンドのみに適用される。
+
+test:
+  command: sh -c 'echo "Hello, $GREETING_NAME!"'
+  env:
+    GREETING_NAME: World
+  expect_output: "Hello, World!\n"
+  expect_exit_code: 0

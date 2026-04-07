@@ -1,0 +1,9 @@
+name: regex match example
+description: |
+  expect_output_regex で POSIX ERE（拡張正規表現）を使った出力検証ができる。
+  完全一致が難しいバージョン番号や日時など、パターンマッチに有効。
+
+test:
+  command: echo "version 1.2.3"
+  expect_output_regex: "version [0-9]+\\.[0-9]+\\.[0-9]+"
+  expect_exit_code: 0

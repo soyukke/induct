@@ -1,0 +1,10 @@
+name: not contains example
+description: |
+  expect_output_not_contains で出力に含まれてはいけない文字列を検証できる。
+  エラーメッセージや不要なデバッグ出力が含まれていないことを確認するのに使う。
+
+test:
+  command: echo "operation succeeded"
+  expect_output_contains: "succeeded"
+  expect_output_not_contains: "error"
+  expect_exit_code: 0
