@@ -1,0 +1,5 @@
+name: spec timeout override
+test:
+  command: sleep 1
+  timeout_ms: 3000
+  expect_exit_code: 0

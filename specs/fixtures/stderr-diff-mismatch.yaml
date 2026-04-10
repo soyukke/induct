@@ -1,0 +1,5 @@
+name: stderr diff header fixture
+test:
+  command: printf "line1\nline2\nline3\n" >&2
+  expect_stderr: "line1\nchanged\nline3\n"
+  expect_exit_code: 0

@@ -83,7 +83,7 @@ fn matchRegex(allocator: Allocator, text: []const u8, pattern: []const u8) !bool
     return result.exit_code == 0;
 }
 
-pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
+pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !SpecResult {
     const start_time = std.time.milliTimestamp();
     var setup_failed = false;
     var error_message: ?[]const u8 = null;
@@ -135,10 +135,13 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
         }
     }
 
+    // Effective timeout: spec-level takes precedence, then global default
+    const effective_timeout = spec.test_case.timeout_ms orelse default_timeout_ms;
+
     // Run setup commands
     if (spec.setup) |setup_cmds| {
         for (setup_cmds) |cmd| {
-            var result = runner.runCommandSimple(allocator, cmd.run) catch {
+            var result = runner.runCommand(allocator, cmd.run, null, default_timeout_ms) catch {
                 setup_failed = true;
                 error_message = try allocator.dupe(u8, "Setup command failed to execute");
                 break;
@@ -174,7 +177,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
             allocator,
             full_cmd,
             spec.test_case.input,
-            spec.test_case.timeout_ms,
+            effective_timeout,
         ) catch |err| {
             const end_time = std.time.milliTimestamp();
             return SpecResult{
@@ -202,21 +205,16 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
             error_message = try std.fmt.allocPrint(
                 allocator,
                 "Command timed out after {d}ms",
-                .{spec.test_case.timeout_ms.?},
+                .{effective_timeout.?},
             );
         } else {
             // Validate results
-            const validation = validator.validate(
+            const validation = validator.validateTestCase(
                 allocator,
                 proc_result.stdout,
                 proc_result.stderr,
                 proc_result.exit_code,
-                spec.test_case.expect_output,
-                spec.test_case.expect_output_contains,
-                spec.test_case.expect_output_not_contains,
-                spec.test_case.expect_stderr,
-                spec.test_case.expect_stderr_contains,
-                spec.test_case.expect_exit_code,
+                spec.test_case,
             );
 
             passed = validation.passed;
@@ -238,6 +236,21 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
                             allocator,
                             "Output does not match regex\n  Pattern: \"{s}\"\n  Actual:  \"{s}\"",
                             .{ pattern, validator.truncate(proc_result.stdout) },
+                        );
+                    }
+                }
+            }
+
+            // Stderr regex validation
+            if (passed) {
+                if (spec.test_case.expect_stderr_regex) |pattern| {
+                    const regex_match = try matchRegex(allocator, proc_result.stderr, pattern);
+                    if (!regex_match) {
+                        passed = false;
+                        error_message = try std.fmt.allocPrint(
+                            allocator,
+                            "Stderr does not match regex\n  Pattern: \"{s}\"\n  Actual:  \"{s}\"",
+                            .{ pattern, validator.truncate(proc_result.stderr) },
                         );
                     }
                 }
@@ -280,6 +293,10 @@ pub fn executeSpec(allocator: Allocator, spec: Spec) !SpecResult {
 }
 
 pub fn executeSpecFromFile(allocator: Allocator, path: []const u8) ![]SpecResult {
+    return executeSpecFromFileWithTimeout(allocator, path, null);
+}
+
+pub fn executeSpecFromFileWithTimeout(allocator: Allocator, path: []const u8, default_timeout_ms: ?u64) ![]SpecResult {
     var spec = parser.parseSpecFromFile(allocator, path) catch |err| {
         var results: std.ArrayListUnmanaged(SpecResult) = .empty;
         try results.append(allocator, SpecResult{
@@ -297,15 +314,15 @@ pub fn executeSpecFromFile(allocator: Allocator, path: []const u8) ![]SpecResult
     defer spec.deinit(allocator);
 
     if (spec.hasSteps()) {
-        return executeSpecSteps(allocator, spec);
+        return executeSpecSteps(allocator, spec, default_timeout_ms);
     }
 
     var results: std.ArrayListUnmanaged(SpecResult) = .empty;
-    try results.append(allocator, try executeSpec(allocator, spec));
+    try results.append(allocator, try executeSpec(allocator, spec, default_timeout_ms));
     return try results.toOwnedSlice(allocator);
 }
 
-fn executeSpecSteps(allocator: Allocator, spec: spec_mod.Spec) ![]SpecResult {
+fn executeSpecSteps(allocator: Allocator, spec: spec_mod.Spec, default_timeout_ms: ?u64) ![]SpecResult {
     const steps = spec.steps.?;
     var results: std.ArrayListUnmanaged(SpecResult) = .empty;
     errdefer {
@@ -318,7 +335,7 @@ fn executeSpecSteps(allocator: Allocator, spec: spec_mod.Spec) ![]SpecResult {
     // Run setup once
     if (spec.setup) |setup_cmds| {
         for (setup_cmds) |cmd| {
-            var proc_result = runner.runCommandSimple(allocator, cmd.run) catch {
+            var proc_result = runner.runCommand(allocator, cmd.run, null, default_timeout_ms) catch {
                 setup_failed = true;
                 break;
             };
@@ -356,7 +373,7 @@ fn executeSpecSteps(allocator: Allocator, spec: spec_mod.Spec) ![]SpecResult {
             .test_case = step.test_case,
         };
 
-        var result = try executeSpec(allocator, step_spec);
+        var result = try executeSpec(allocator, step_spec, default_timeout_ms);
         // Replace the name since executeSpec dupes spec.name
         allocator.free(result.spec_name);
         result.spec_name = step_name;
@@ -424,6 +441,7 @@ pub const ExecuteOptions = struct {
     fail_fast: bool = false,
     filter: ?[]const u8 = null,
     max_jobs: usize = 1,
+    default_timeout_ms: ?u64 = null,
 };
 
 pub fn executeSpecsFromDir(allocator: Allocator, dir_path: []const u8) ![]SpecResult {
@@ -504,7 +522,7 @@ pub fn executeSpecsFromDirWithOptions(allocator: Allocator, dir_path: []const u8
 
     // Sequential execution
     for (paths.items) |path| {
-        const file_results = try executeSpecFromFile(allocator, path);
+        const file_results = try executeSpecFromFileWithTimeout(allocator, path, options.default_timeout_ms);
         defer allocator.free(file_results);
 
         var should_stop = false;
@@ -529,13 +547,16 @@ fn executeSpecsParallel(allocator: Allocator, paths: []const []const u8, options
     defer allocator.free(file_results);
     for (file_results) |*r| r.* = &.{};
 
+    const default_timeout = options.default_timeout_ms;
+
     const ThreadContext = struct {
         alloc: Allocator,
         path: []const u8,
         result_slot: *[]SpecResult,
+        timeout_ms: ?u64,
 
         fn work(ctx: @This()) void {
-            ctx.result_slot.* = executeSpecFromFile(ctx.alloc, ctx.path) catch {
+            ctx.result_slot.* = executeSpecFromFileWithTimeout(ctx.alloc, ctx.path, ctx.timeout_ms) catch {
                 // Create error result on failure
                 var err_results: std.ArrayListUnmanaged(SpecResult) = .empty;
                 err_results.append(ctx.alloc, SpecResult{
@@ -579,12 +600,13 @@ fn executeSpecsParallel(allocator: Allocator, paths: []const []const u8, options
             .alloc = allocator,
             .path = path,
             .result_slot = &file_results[i],
+            .timeout_ms = default_timeout,
         }}) catch null;
 
         if (threads[i] != null) {
             launched += 1;
         } else {
-            file_results[i] = try executeSpecFromFile(allocator, path);
+            file_results[i] = try executeSpecFromFileWithTimeout(allocator, path, default_timeout);
         }
     }
 
@@ -609,84 +631,208 @@ pub fn executeProjectSpec(allocator: Allocator, project: ProjectSpec, base_dir: 
 }
 
 pub fn executeProjectSpecWithOptions(allocator: Allocator, project: ProjectSpec, base_dir: ?[]const u8, options: ExecuteOptions) ![]SpecResult {
-    var results: std.ArrayListUnmanaged(SpecResult) = .empty;
-    errdefer {
-        for (results.items) |*r| {
-            r.deinit(allocator);
+    // Collect work items: resolve include paths and apply filter
+    const WorkItem = union(enum) {
+        inline_spec_idx: usize, // index into project.specs
+        include_file: []const u8, // owned full path
+    };
+
+    var work_items: std.ArrayListUnmanaged(WorkItem) = .empty;
+    defer {
+        for (work_items.items) |item| {
+            switch (item) {
+                .include_file => |p| allocator.free(p),
+                .inline_spec_idx => {},
+            }
         }
-        results.deinit(allocator);
+        work_items.deinit(allocator);
     }
 
-    // Execute inline specs
-    for (project.specs) |spec| {
-        // Apply filter
+    // Collect inline specs
+    for (project.specs, 0..) |spec, idx| {
         if (options.filter) |filter| {
             if (std.mem.indexOf(u8, spec.name, filter) == null) continue;
         }
-
-        const result = try executeSpec(allocator, spec);
-        try results.append(allocator, result);
-
-        if (options.fail_fast and !result.passed) {
-            return try results.toOwnedSlice(allocator);
-        }
+        try work_items.append(allocator, .{ .inline_spec_idx = idx });
     }
 
-    // Execute specs from include files
+    // Collect include files
     for (project.include) |include_path| {
         const full_path = if (base_dir) |base|
             try std.fmt.allocPrint(allocator, "{s}/{s}", .{ base, include_path })
         else
             try allocator.dupe(u8, include_path);
-        defer allocator.free(full_path);
 
-        if (std.mem.endsWith(u8, include_path, "inductspec.yaml")) {
-            var nested_project = parser.parseProjectSpecFromFile(allocator, full_path) catch |err| {
-                const error_result = SpecResult{
-                    .id = try generateId(allocator),
-                    .spec_name = try allocator.dupe(u8, include_path),
-                    .passed = false,
-                    .actual_output = try allocator.dupe(u8, ""),
-                    .actual_stderr = try allocator.dupe(u8, ""),
-                    .actual_exit_code = -1,
-                    .error_message = try std.fmt.allocPrint(allocator, "Failed to parse project spec: {}", .{err}),
-                    .duration_ms = 0,
+        // Apply filter for non-projectspec includes
+        if (!isProjectSpecFile(include_path)) {
+            if (options.filter) |filter| {
+                var spec = parser.parseSpecFromFile(allocator, full_path) catch {
+                    try work_items.append(allocator, .{ .include_file = full_path });
+                    continue;
                 };
-                try results.append(allocator, error_result);
-                continue;
-            };
-            defer nested_project.deinit(allocator);
-
-            const nested_base_dir = std.fs.path.dirname(full_path);
-            const nested_results = try executeProjectSpecWithOptions(allocator, nested_project, nested_base_dir, options);
-            defer allocator.free(nested_results);
-
-            var should_stop = false;
-            for (nested_results) |nested_result| {
-                try results.append(allocator, nested_result);
-                if (options.fail_fast and !nested_result.passed) {
-                    should_stop = true;
+                const matches = std.mem.indexOf(u8, spec.name, filter) != null;
+                spec.deinit(allocator);
+                if (!matches) {
+                    allocator.free(full_path);
+                    continue;
                 }
             }
-            if (should_stop) return try results.toOwnedSlice(allocator);
+        }
+        try work_items.append(allocator, .{ .include_file = full_path });
+    }
+
+    if (work_items.items.len == 0) {
+        return try allocator.alloc(SpecResult, 0);
+    }
+
+    // Sequential execution
+    if (options.max_jobs <= 1) {
+        var results: std.ArrayListUnmanaged(SpecResult) = .empty;
+        errdefer {
+            for (results.items) |*r| r.deinit(allocator);
+            results.deinit(allocator);
+        }
+
+        for (work_items.items) |item| {
+            switch (item) {
+                .inline_spec_idx => |idx| {
+                    const result = try executeSpec(allocator, project.specs[idx], options.default_timeout_ms);
+                    try results.append(allocator, result);
+                    if (options.fail_fast and !result.passed) {
+                        return try results.toOwnedSlice(allocator);
+                    }
+                },
+                .include_file => |full_path| {
+                    if (isProjectSpecFile(full_path)) {
+                        var nested_project = parser.parseProjectSpecFromFile(allocator, full_path) catch |err| {
+                            try results.append(allocator, SpecResult{
+                                .id = try generateId(allocator),
+                                .spec_name = try allocator.dupe(u8, full_path),
+                                .passed = false,
+                                .actual_output = try allocator.dupe(u8, ""),
+                                .actual_stderr = try allocator.dupe(u8, ""),
+                                .actual_exit_code = -1,
+                                .error_message = try std.fmt.allocPrint(allocator, "Failed to parse project spec: {}", .{err}),
+                                .duration_ms = 0,
+                            });
+                            continue;
+                        };
+                        defer nested_project.deinit(allocator);
+                        const nested_base_dir = std.fs.path.dirname(full_path);
+                        const nested_results = try executeProjectSpecWithOptions(allocator, nested_project, nested_base_dir, options);
+                        defer allocator.free(nested_results);
+                        for (nested_results) |r| try results.append(allocator, r);
+                    } else {
+                        const file_results = try executeSpecFromFileWithTimeout(allocator, full_path, options.default_timeout_ms);
+                        defer allocator.free(file_results);
+                        var should_stop = false;
+                        for (file_results) |r| {
+                            try results.append(allocator, r);
+                            if (options.fail_fast and !r.passed and r.status != .skipped) should_stop = true;
+                        }
+                        if (should_stop) return try results.toOwnedSlice(allocator);
+                    }
+                },
+            }
+        }
+        return try results.toOwnedSlice(allocator);
+    }
+
+    // Parallel execution
+    const n = work_items.items.len;
+    const effective_jobs = @min(options.max_jobs, n);
+
+    const slot_results = try allocator.alloc([]SpecResult, n);
+    defer allocator.free(slot_results);
+    for (slot_results) |*r| r.* = &.{};
+
+    const ParallelCtx = struct {
+        alloc: Allocator,
+        item: WorkItem,
+        project_specs: []const spec_mod.Spec,
+        opts: ExecuteOptions,
+        result_slot: *[]SpecResult,
+
+        fn work(ctx: @This()) void {
+            switch (ctx.item) {
+                .inline_spec_idx => |idx| {
+                    const result = executeSpec(ctx.alloc, ctx.project_specs[idx], ctx.opts.default_timeout_ms) catch return;
+                    var res: std.ArrayListUnmanaged(SpecResult) = .empty;
+                    res.append(ctx.alloc, result) catch return;
+                    ctx.result_slot.* = res.toOwnedSlice(ctx.alloc) catch return;
+                },
+                .include_file => |full_path| {
+                    if (isProjectSpecFile(full_path)) {
+                        var nested_project = parser.parseProjectSpecFromFile(ctx.alloc, full_path) catch return;
+                        defer nested_project.deinit(ctx.alloc);
+                        const nested_base_dir = std.fs.path.dirname(full_path);
+                        ctx.result_slot.* = executeProjectSpecWithOptions(ctx.alloc, nested_project, nested_base_dir, ctx.opts) catch return;
+                    } else {
+                        ctx.result_slot.* = executeSpecFromFileWithTimeout(ctx.alloc, full_path, ctx.opts.default_timeout_ms) catch return;
+                    }
+                },
+            }
+        }
+    };
+
+    var threads = try allocator.alloc(?std.Thread, n);
+    defer allocator.free(threads);
+    for (threads) |*t| t.* = null;
+
+    var launched: usize = 0;
+
+    for (work_items.items, 0..) |item, i| {
+        while (launched >= effective_jobs) {
+            var found = false;
+            for (threads[0..launched]) |*t| {
+                if (t.*) |thread| {
+                    thread.join();
+                    t.* = null;
+                    launched -= 1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) break;
+        }
+
+        threads[i] = std.Thread.spawn(.{}, ParallelCtx.work, .{ParallelCtx{
+            .alloc = allocator,
+            .item = item,
+            .project_specs = project.specs,
+            .opts = options,
+            .result_slot = &slot_results[i],
+        }}) catch null;
+
+        if (threads[i] != null) {
+            launched += 1;
         } else {
-            const file_results = try executeSpecFromFile(allocator, full_path);
-            defer allocator.free(file_results);
-
-            var should_stop_file = false;
-            for (file_results) |r| {
-                try results.append(allocator, r);
-                if (options.fail_fast and !r.passed and r.status != .skipped) {
-                    should_stop_file = true;
-                }
-            }
-            if (should_stop_file) {
-                return try results.toOwnedSlice(allocator);
+            // Fallback to sequential if thread spawn fails
+            switch (item) {
+                .inline_spec_idx => |idx| {
+                    var res: std.ArrayListUnmanaged(SpecResult) = .empty;
+                    res.append(allocator, try executeSpec(allocator, project.specs[idx], options.default_timeout_ms)) catch {};
+                    slot_results[i] = res.toOwnedSlice(allocator) catch &.{};
+                },
+                .include_file => |full_path| {
+                    slot_results[i] = executeSpecFromFileWithTimeout(allocator, full_path, options.default_timeout_ms) catch &.{};
+                },
             }
         }
     }
 
-    return try results.toOwnedSlice(allocator);
+    for (threads) |t| {
+        if (t) |thread| thread.join();
+    }
+
+    // Flatten results
+    var all_results: std.ArrayListUnmanaged(SpecResult) = .empty;
+    for (slot_results) |sr| {
+        for (sr) |r| try all_results.append(allocator, r);
+        if (sr.len > 0) allocator.free(sr);
+    }
+
+    return try all_results.toOwnedSlice(allocator);
 }
 
 pub fn executeProjectSpecFromFile(allocator: Allocator, path: []const u8) ![]SpecResult {
@@ -729,7 +875,7 @@ test "execute simple spec" {
         },
     };
 
-    var result = try executeSpec(std.testing.allocator, spec);
+    var result = try executeSpec(std.testing.allocator, spec, null);
     defer result.deinit(std.testing.allocator);
 
     try std.testing.expect(result.passed);
@@ -748,7 +894,7 @@ test "execute spec with stdin" {
         },
     };
 
-    var result = try executeSpec(std.testing.allocator, spec);
+    var result = try executeSpec(std.testing.allocator, spec, null);
     defer result.deinit(std.testing.allocator);
 
     try std.testing.expect(result.passed);
@@ -764,7 +910,7 @@ test "execute failing spec" {
         },
     };
 
-    var result = try executeSpec(std.testing.allocator, spec);
+    var result = try executeSpec(std.testing.allocator, spec, null);
     defer result.deinit(std.testing.allocator);
 
     try std.testing.expect(!result.passed);

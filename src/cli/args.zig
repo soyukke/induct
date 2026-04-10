@@ -18,6 +18,9 @@ pub const RunArgs = struct {
     junit_output: bool = false,
     fail_fast: bool = false,
     dry_run: bool = false,
+    filter: ?[]const u8 = null,
+    timeout_ms: ?u64 = null,
+    max_jobs: usize = 1,
 };
 
 pub const RunDirArgs = struct {
@@ -29,6 +32,7 @@ pub const RunDirArgs = struct {
     dry_run: bool = false,
     filter: ?[]const u8 = null,
     max_jobs: usize = 1,
+    timeout_ms: ?u64 = null,
 };
 
 pub const TemplateType = enum {
@@ -77,6 +81,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
     var template: TemplateType = .basic;
     var filter: ?[]const u8 = null;
     var max_jobs: usize = 1;
+    var timeout_ms: ?u64 = null;
     var positional: ?[]const u8 = null;
 
     // Parse options and positional args
@@ -115,6 +120,12 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
             max_jobs = std.fmt.parseInt(usize, args[i], 10) catch return ParseError.InvalidOption;
         } else if (std.mem.startsWith(u8, arg, "-j")) {
             max_jobs = std.fmt.parseInt(usize, arg[2..], 10) catch return ParseError.InvalidOption;
+        } else if (std.mem.eql(u8, arg, "--timeout-ms")) {
+            i += 1;
+            if (i >= args.len) return ParseError.MissingArgument;
+            timeout_ms = std.fmt.parseInt(u64, args[i], 10) catch return ParseError.InvalidOption;
+        } else if (std.mem.startsWith(u8, arg, "--timeout-ms=")) {
+            timeout_ms = std.fmt.parseInt(u64, arg["--timeout-ms=".len..], 10) catch return ParseError.InvalidOption;
         } else if (!std.mem.startsWith(u8, arg, "-")) {
             if (positional == null) positional = arg;
         }
@@ -132,6 +143,9 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
                 .junit_output = junit_output,
                 .fail_fast = fail_fast,
                 .dry_run = dry_run,
+                .filter = filter,
+                .timeout_ms = timeout_ms,
+                .max_jobs = max_jobs,
             },
         };
     } else if (std.mem.eql(u8, cmd, "run-dir")) {
@@ -148,6 +162,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!Command {
                 .dry_run = dry_run,
                 .filter = filter,
                 .max_jobs = max_jobs,
+                .timeout_ms = timeout_ms,
             },
         };
     } else if (std.mem.eql(u8, cmd, "init")) {
@@ -283,6 +298,19 @@ test "parse validate command" {
     switch (result) {
         .validate_cmd => |val_args| {
             try std.testing.expectEqualStrings("test.yaml", val_args.spec_path);
+        },
+        else => try std.testing.expect(false),
+    }
+}
+
+test "parse run command with filter" {
+    const args = [_][]const u8{ "induct", "run", "--filter", "echo", "test.yaml" };
+    const result = try parseArgs(&args);
+
+    switch (result) {
+        .run => |run_args| {
+            try std.testing.expectEqualStrings("test.yaml", run_args.spec_path);
+            try std.testing.expectEqualStrings("echo", run_args.filter.?);
         },
         else => try std.testing.expect(false),
     }

@@ -1,0 +1,5 @@
+name: stderr not contains fail case
+test:
+  command: echo "FATAL error occurred" >&2
+  expect_stderr_not_contains: "FATAL"
+  expect_exit_code: 0

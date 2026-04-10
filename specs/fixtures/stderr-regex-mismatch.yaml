@@ -1,0 +1,5 @@
+name: stderr regex mismatch fixture
+test:
+  command: echo "all good" >&2
+  expect_stderr_regex: "error:.*fatal"
+  expect_exit_code: 0

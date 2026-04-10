@@ -73,11 +73,6 @@ pub fn build(b: *std.Build) void {
             // List of modules available for import in source files part of the
             // root module.
             .imports = &.{
-                // Here "induct" is the name you will use in your source code to
-                // import this module (e.g. `@import("induct")`). The name is
-                // repeated because you are allowed to rename your imports, which
-                // can be extremely useful in case of collisions (which can happen
-                // importing modules from different packages).
                 .{ .name = "induct", .module = mod },
             },
         }),

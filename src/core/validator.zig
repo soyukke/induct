@@ -1,5 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const spec_mod = @import("spec.zig");
+const TestCase = spec_mod.TestCase;
 
 pub const ValidationResult = struct {
     passed: bool,
@@ -9,6 +11,7 @@ pub const ValidationResult = struct {
 };
 
 const max_display_len = 200;
+const max_diff_lines = 20;
 
 pub fn truncate(s: []const u8) []const u8 {
     if (s.len <= max_display_len) return s;
@@ -32,6 +35,106 @@ fn escape(allocator: Allocator, s: []const u8) ![]const u8 {
     return try out.toOwnedSlice(allocator);
 }
 
+/// Returns true if the string contains multiple lines (ignoring a single trailing newline).
+fn isMultiline(s: []const u8) bool {
+    const trimmed = if (s.len > 0 and s[s.len - 1] == '\n') s[0 .. s.len - 1] else s;
+    return std.mem.indexOf(u8, trimmed, "\n") != null;
+}
+
+/// Split a string into lines, preserving the content without terminators.
+fn splitLines(s: []const u8) std.mem.SplitIterator(u8, .scalar) {
+    return std.mem.splitScalar(u8, s, '\n');
+}
+
+/// Generate a line-by-line diff between expected and actual output.
+/// Note: This is a simple line-by-line comparison, not LCS-based.
+/// Insertions/deletions at the beginning will cause all subsequent lines to show as changed.
+/// Only context lines around differences are shown (similar to unified diff).
+fn generateDiff(allocator: Allocator, expected: []const u8, actual: []const u8) ![]const u8 {
+    return generateDiffWithHeader(allocator, expected, actual, "Output mismatch (diff):\n");
+}
+
+fn generateStderrDiff(allocator: Allocator, expected: []const u8, actual: []const u8) ![]const u8 {
+    return generateDiffWithHeader(allocator, expected, actual, "Stderr mismatch (diff):\n");
+}
+
+fn generateDiffWithHeader(allocator: Allocator, expected: []const u8, actual: []const u8, header: []const u8) ![]const u8 {
+    const context_lines = 3;
+
+    // First pass: collect all lines and find which are different
+    var exp_lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer exp_lines.deinit(allocator);
+    var act_lines: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer act_lines.deinit(allocator);
+
+    var exp_iter = splitLines(expected);
+    while (exp_iter.next()) |line| try exp_lines.append(allocator, line);
+    var act_iter = splitLines(actual);
+    while (act_iter.next()) |line| try act_lines.append(allocator, line);
+
+    const max_len = @max(exp_lines.items.len, act_lines.items.len);
+
+    // Mark which lines should be displayed (different lines + context)
+    var show = try allocator.alloc(bool, max_len);
+    defer allocator.free(show);
+    @memset(show, false);
+
+    for (0..max_len) |i| {
+        const is_diff = if (i < exp_lines.items.len and i < act_lines.items.len)
+            !std.mem.eql(u8, exp_lines.items[i], act_lines.items[i])
+        else
+            true;
+        if (is_diff) {
+            const start = if (i >= context_lines) i - context_lines else 0;
+            const end = @min(i + context_lines + 1, max_len);
+            for (start..end) |j| show[j] = true;
+        }
+    }
+
+    // Second pass: generate output with context
+    var out: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer out.deinit(allocator);
+
+    try out.appendSlice(allocator, header);
+
+    var diff_count: usize = 0;
+    var in_gap = false;
+
+    for (0..max_len) |i| {
+        if (diff_count >= max_diff_lines) {
+            try out.appendSlice(allocator, "  ... (diff truncated)\n");
+            break;
+        }
+        if (!show[i]) {
+            if (!in_gap) {
+                try out.appendSlice(allocator, "  ...\n");
+                in_gap = true;
+            }
+            continue;
+        }
+        in_gap = false;
+        const line_num = i + 1;
+
+        if (i < exp_lines.items.len and i < act_lines.items.len) {
+            if (std.mem.eql(u8, exp_lines.items[i], act_lines.items[i])) {
+                try std.fmt.format(out.writer(allocator), "  {d: >3}   {s}\n", .{ line_num, exp_lines.items[i] });
+            } else {
+                try std.fmt.format(out.writer(allocator), "  {d: >3} - {s}\n", .{ line_num, exp_lines.items[i] });
+                try std.fmt.format(out.writer(allocator), "      + {s}\n", .{act_lines.items[i]});
+                diff_count += 1;
+            }
+        } else if (i < exp_lines.items.len) {
+            try std.fmt.format(out.writer(allocator), "  {d: >3} - {s}\n", .{ line_num, exp_lines.items[i] });
+            diff_count += 1;
+        } else if (i < act_lines.items.len) {
+            try std.fmt.format(out.writer(allocator), "  {d: >3} + {s}\n", .{ line_num, act_lines.items[i] });
+            diff_count += 1;
+        }
+    }
+
+    return try out.toOwnedSlice(allocator);
+}
+
 pub fn validateOutput(
     allocator: Allocator,
     actual: []const u8,
@@ -40,6 +143,12 @@ pub fn validateOutput(
 ) ValidationResult {
     if (expect_exact) |expected| {
         if (!std.mem.eql(u8, actual, expected)) {
+            if (isMultiline(expected) or isMultiline(actual)) {
+                const msg = generateDiff(allocator, expected, actual) catch
+                    return .{ .passed = false, .error_message = "Output mismatch (allocation failed)" };
+                return .{ .passed = false, .error_message = msg, .allocated = true };
+            }
+
             const escaped_expected = escape(allocator, expected) catch return .{ .passed = false, .error_message = "Output mismatch (allocation failed)" };
             const escaped_actual = escape(allocator, actual) catch {
                 allocator.free(escaped_expected);
@@ -77,19 +186,36 @@ pub fn validateOutput(
     return .{ .passed = true, .error_message = null };
 }
 
+fn validateNotContains(
+    allocator: Allocator,
+    actual: []const u8,
+    not_contains: ?[]const u8,
+    label: []const u8,
+) ValidationResult {
+    if (not_contains) |unexpected| {
+        if (std.mem.indexOf(u8, actual, unexpected) != null) {
+            const msg = std.fmt.allocPrint(allocator, "{s} contains unwanted substring\n  Should not contain: \"{s}\"", .{ label, truncate(unexpected) }) catch
+                return .{ .passed = false, .error_message = "contains unwanted substring" };
+            return .{ .passed = false, .error_message = msg, .allocated = true };
+        }
+    }
+    return .{ .passed = true, .error_message = null };
+}
+
 pub fn validateOutputNotContains(
     allocator: Allocator,
     actual: []const u8,
     not_contains: ?[]const u8,
 ) ValidationResult {
-    if (not_contains) |unexpected| {
-        if (std.mem.indexOf(u8, actual, unexpected) != null) {
-            const msg = std.fmt.allocPrint(allocator, "Output contains unwanted substring\n  Should not contain: \"{s}\"", .{truncate(unexpected)}) catch
-                return .{ .passed = false, .error_message = "Output contains unwanted substring" };
-            return .{ .passed = false, .error_message = msg, .allocated = true };
-        }
-    }
-    return .{ .passed = true, .error_message = null };
+    return validateNotContains(allocator, actual, not_contains, "Output");
+}
+
+pub fn validateStderrNotContains(
+    allocator: Allocator,
+    actual_stderr: []const u8,
+    not_contains: ?[]const u8,
+) ValidationResult {
+    return validateNotContains(allocator, actual_stderr, not_contains, "Stderr");
 }
 
 pub fn validateStderr(
@@ -100,6 +226,12 @@ pub fn validateStderr(
 ) ValidationResult {
     if (expect_stderr) |expected| {
         if (!std.mem.eql(u8, actual_stderr, expected)) {
+            if (isMultiline(expected) or isMultiline(actual_stderr)) {
+                const msg = generateStderrDiff(allocator, expected, actual_stderr) catch
+                    return .{ .passed = false, .error_message = "Stderr mismatch (allocation failed)" };
+                return .{ .passed = false, .error_message = msg, .allocated = true };
+            }
+
             const escaped_expected = escape(allocator, expected) catch return .{ .passed = false, .error_message = "Stderr mismatch (allocation failed)" };
             const escaped_actual = escape(allocator, actual_stderr) catch {
                 allocator.free(escaped_expected);
@@ -138,29 +270,27 @@ pub fn validateExitCode(allocator: Allocator, actual: i32, expected: i32) Valida
     return .{ .passed = true, .error_message = null };
 }
 
-pub fn validate(
+pub fn validateTestCase(
     allocator: Allocator,
     actual_output: []const u8,
     actual_stderr: []const u8,
     actual_exit_code: i32,
-    expect_output: ?[]const u8,
-    expect_output_contains: ?[]const u8,
-    expect_output_not_contains: ?[]const u8,
-    expect_stderr: ?[]const u8,
-    expect_stderr_contains: ?[]const u8,
-    expect_exit_code: i32,
+    tc: TestCase,
 ) ValidationResult {
-    const exit_result = validateExitCode(allocator, actual_exit_code, expect_exit_code);
+    const exit_result = validateExitCode(allocator, actual_exit_code, tc.expect_exit_code);
     if (!exit_result.passed) return exit_result;
 
-    const output_result = validateOutput(allocator, actual_output, expect_output, expect_output_contains);
+    const output_result = validateOutput(allocator, actual_output, tc.expect_output, tc.expect_output_contains);
     if (!output_result.passed) return output_result;
 
-    const not_contains_result = validateOutputNotContains(allocator, actual_output, expect_output_not_contains);
+    const not_contains_result = validateOutputNotContains(allocator, actual_output, tc.expect_output_not_contains);
     if (!not_contains_result.passed) return not_contains_result;
 
-    const stderr_result = validateStderr(allocator, actual_stderr, expect_stderr, expect_stderr_contains);
+    const stderr_result = validateStderr(allocator, actual_stderr, tc.expect_stderr, tc.expect_stderr_contains);
     if (!stderr_result.passed) return stderr_result;
+
+    const stderr_not_contains_result = validateStderrNotContains(allocator, actual_stderr, tc.expect_stderr_not_contains);
+    if (!stderr_not_contains_result.passed) return stderr_not_contains_result;
 
     return .{ .passed = true, .error_message = null };
 }
@@ -231,19 +361,36 @@ test "validate exit code" {
     try std.testing.expect(r3.passed);
 }
 
-test "validate all" {
-    const r1 = validate(std.testing.allocator, "hello\n", "", 0, "hello\n", null, null, null, null, 0);
+test "validate stderr not contains" {
+    const r1 = validateStderrNotContains(std.testing.allocator, "warning: minor", "FATAL");
     try std.testing.expect(r1.passed);
 
-    const r2 = validate(std.testing.allocator, "hello\n", "", 1, "hello\n", null, null, null, null, 0);
+    const r2 = validateStderrNotContains(std.testing.allocator, "FATAL error", "FATAL");
+    defer if (r2.allocated) std.testing.allocator.free(r2.error_message.?);
+    try std.testing.expect(!r2.passed);
+    try std.testing.expect(std.mem.indexOf(u8, r2.error_message.?, "Should not contain:") != null);
+}
+
+test "validateTestCase" {
+    const r1 = validateTestCase(std.testing.allocator, "hello\n", "", 0, .{ .command = "x", .expect_output = "hello\n" });
+    try std.testing.expect(r1.passed);
+
+    const r2 = validateTestCase(std.testing.allocator, "hello\n", "", 1, .{ .command = "x", .expect_output = "hello\n" });
     defer if (r2.allocated) std.testing.allocator.free(r2.error_message.?);
     try std.testing.expect(!r2.passed);
 
-    const r3 = validate(std.testing.allocator, "world\n", "", 0, "hello\n", null, null, null, null, 0);
+    const r3 = validateTestCase(std.testing.allocator, "world\n", "", 0, .{ .command = "x", .expect_output = "hello\n" });
     defer if (r3.allocated) std.testing.allocator.free(r3.error_message.?);
     try std.testing.expect(!r3.passed);
 
-    const r4 = validate(std.testing.allocator, "hello\n", "", 0, null, null, "hello", null, null, 0);
+    const r4 = validateTestCase(std.testing.allocator, "hello\n", "", 0, .{ .command = "x", .expect_output_not_contains = "hello" });
     defer if (r4.allocated) std.testing.allocator.free(r4.error_message.?);
     try std.testing.expect(!r4.passed);
+
+    const r5 = validateTestCase(std.testing.allocator, "", "warning only", 0, .{ .command = "x", .expect_stderr_not_contains = "FATAL" });
+    try std.testing.expect(r5.passed);
+
+    const r6 = validateTestCase(std.testing.allocator, "", "FATAL crash", 0, .{ .command = "x", .expect_stderr_not_contains = "FATAL" });
+    defer if (r6.allocated) std.testing.allocator.free(r6.error_message.?);
+    try std.testing.expect(!r6.passed);
 }

@@ -1,0 +1,15 @@
+name: expect_stderr_not_contains validation
+description: |
+  expect_stderr_not_contains verifies that stderr does NOT contain
+  a given substring. Passes when absent, fails when present.
+
+steps:
+  - name: passes when stderr does not contain substring
+    command: ./zig-out/bin/induct run specs/fixtures/stderr-not-contains-pass.yaml
+    expect_output_contains: "[PASS]"
+    expect_exit_code: 0
+
+  - name: fails when stderr contains unwanted substring
+    command: ./zig-out/bin/induct run specs/fixtures/stderr-not-contains-fail.yaml
+    expect_output_contains: "Stderr contains unwanted substring"
+    expect_exit_code: 1

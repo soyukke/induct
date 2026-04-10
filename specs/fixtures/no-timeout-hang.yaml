@@ -1,0 +1,4 @@
+name: no timeout hang
+test:
+  command: sleep 60
+  expect_exit_code: 0

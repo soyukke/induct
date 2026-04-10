@@ -1,0 +1,8 @@
+name: expect_stderr_regex reports mismatch on failure
+description: |
+  When stderr does not match the regex pattern, the spec should fail
+  with a clear error message showing the pattern and actual stderr.
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/stderr-regex-mismatch.yaml 2>&1; true
+  expect_output_contains: "Stderr does not match regex"
+  expect_exit_code: 0

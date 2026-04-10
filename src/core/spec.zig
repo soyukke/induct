@@ -60,6 +60,8 @@ pub const TestCase = struct {
     expect_output_regex: ?[]const u8 = null,
     expect_stderr: ?[]const u8 = null,
     expect_stderr_contains: ?[]const u8 = null,
+    expect_stderr_not_contains: ?[]const u8 = null,
+    expect_stderr_regex: ?[]const u8 = null,
     expect_exit_code: i32 = 0,
     generate: bool = false,
     target_path: ?[]const u8 = null,
@@ -76,6 +78,8 @@ pub const TestCase = struct {
         if (self.expect_output_regex) |out| allocator.free(out);
         if (self.expect_stderr) |out| allocator.free(out);
         if (self.expect_stderr_contains) |out| allocator.free(out);
+        if (self.expect_stderr_not_contains) |out| allocator.free(out);
+        if (self.expect_stderr_regex) |out| allocator.free(out);
         if (self.target_path) |path| allocator.free(path);
         if (self.env) |env_vars| {
             for (env_vars) |ev| ev.deinit(allocator);

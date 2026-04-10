@@ -130,6 +130,9 @@ pub fn main() !void {
 
             const options = induct.core.executor.ExecuteOptions{
                 .fail_fast = run_args.fail_fast,
+                .filter = run_args.filter,
+                .default_timeout_ms = run_args.timeout_ms,
+                .max_jobs = run_args.max_jobs,
             };
 
             if (run_args.dry_run) {
@@ -162,7 +165,7 @@ pub fn main() !void {
 
                 if (summary.failed > 0) std.process.exit(1);
             } else {
-                const results = try induct.core.executor.executeSpecFromFile(allocator, run_args.spec_path);
+                const results = try induct.core.executor.executeSpecFromFileWithTimeout(allocator, run_args.spec_path, options.default_timeout_ms);
                 defer {
                     for (results) |*r| {
                         var result = @constCast(r);
@@ -204,6 +207,7 @@ pub fn main() !void {
                 .fail_fast = run_args.fail_fast,
                 .filter = run_args.filter,
                 .max_jobs = run_args.max_jobs,
+                .default_timeout_ms = run_args.timeout_ms,
             };
 
             const results = try induct.core.executor.executeSpecsFromDirWithOptions(allocator, run_args.dir_path, options);
@@ -351,17 +355,22 @@ fn flattenOneLine(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
     return try out.toOwnedSlice(allocator);
 }
 
-fn handleList(allocator: std.mem.Allocator, dir_path: []const u8, markdown: bool, writer: anytype) !void {
-    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-    defer dir.close();
+const ListEntry = struct {
+    name: []const u8,
+    description: []const u8,
+    file: []const u8,
+};
 
-    const Entry = struct {
-        name: []const u8,
-        description: []const u8,
-        file: []const u8,
+fn handleList(allocator: std.mem.Allocator, path: []const u8, markdown: bool, writer: anytype) !void {
+    // Check if path is a file (ProjectSpec) or directory
+    const is_file = blk: {
+        std.fs.cwd().access(path, .{}) catch break :blk false;
+        var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch break :blk true;
+        dir.close();
+        break :blk false;
     };
 
-    var entries: std.ArrayListUnmanaged(Entry) = .empty;
+    var entries: std.ArrayListUnmanaged(ListEntry) = .empty;
     defer {
         for (entries.items) |e| {
             allocator.free(e.name);
@@ -371,26 +380,15 @@ fn handleList(allocator: std.mem.Allocator, dir_path: []const u8, markdown: bool
         entries.deinit(allocator);
     }
 
-    var iter = dir.iterate();
-    while (try iter.next()) |entry| {
-        if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
-
-        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
-        defer allocator.free(full_path);
-
-        var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
-        const name = try allocator.dupe(u8, spec.name);
-        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
-        const file = try allocator.dupe(u8, entry.name);
-        spec.deinit(allocator);
-
-        try entries.append(allocator, .{ .name = name, .description = desc, .file = file });
+    if (is_file) {
+        try collectProjectSpecEntries(allocator, path, &entries);
+    } else {
+        try collectDirEntries(allocator, path, &entries);
     }
 
     // Sort by filename
-    std.mem.sort(Entry, entries.items, {}, struct {
-        fn lessThan(_: void, a: Entry, b: Entry) bool {
+    std.mem.sort(ListEntry, entries.items, {}, struct {
+        fn lessThan(_: void, a: ListEntry, b: ListEntry) bool {
             return std.mem.order(u8, a.file, b.file) == .lt;
         }
     }.lessThan);
@@ -410,6 +408,66 @@ fn handleList(allocator: std.mem.Allocator, dir_path: []const u8, markdown: bool
             }
             writer.print("\n", .{}) catch {};
         }
+    }
+}
+
+fn collectDirEntries(allocator: std.mem.Allocator, dir_path: []const u8, entries: *std.ArrayListUnmanaged(ListEntry)) !void {
+    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
+    defer dir.close();
+
+    var iter = dir.iterate();
+    while (try iter.next()) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
+
+        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
+        defer allocator.free(full_path);
+
+        var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
+        const name = try allocator.dupe(u8, spec.name);
+        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
+        const file = try allocator.dupe(u8, entry.name);
+        spec.deinit(allocator);
+
+        try entries.append(allocator, .{ .name = name, .description = desc, .file = file });
+    }
+}
+
+fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, entries: *std.ArrayListUnmanaged(ListEntry)) !void {
+    var project = try induct.yaml.parser.parseProjectSpecFromFile(allocator, path);
+    defer project.deinit(allocator);
+
+    const base_dir = std.fs.path.dirname(path);
+
+    // Inline specs
+    for (project.specs) |spec| {
+        const name = try allocator.dupe(u8, spec.name);
+        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
+        const file = try allocator.dupe(u8, "(inline)");
+        try entries.append(allocator, .{ .name = name, .description = desc, .file = file });
+    }
+
+    // Included spec files
+    for (project.include) |include_path| {
+        const full_path = if (base_dir) |base|
+            try std.fmt.allocPrint(allocator, "{s}/{s}", .{ base, include_path })
+        else
+            try allocator.dupe(u8, include_path);
+        defer allocator.free(full_path);
+
+        // Recurse into nested ProjectSpecs
+        if (induct.core.executor.isProjectSpecFile(include_path)) {
+            collectProjectSpecEntries(allocator, full_path, entries) catch continue;
+            continue;
+        }
+
+        var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
+        const name = try allocator.dupe(u8, spec.name);
+        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
+        const file = try allocator.dupe(u8, include_path);
+        spec.deinit(allocator);
+
+        try entries.append(allocator, .{ .name = name, .description = desc, .file = file });
     }
 }
 

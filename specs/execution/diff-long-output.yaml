@@ -1,0 +1,9 @@
+name: long output diff shows mismatch beyond truncation point
+description: |
+  When output is very long and the mismatch appears after many
+  identical lines, the diff should still display the mismatched line
+  rather than truncating before reaching it.
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/diff-long-output.yaml 2>&1; true
+  expect_output_contains: "- WRONG"
+  expect_exit_code: 0

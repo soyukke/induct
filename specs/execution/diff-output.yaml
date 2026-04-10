@@ -1,0 +1,14 @@
+name: output mismatch shows diff-style error
+description: |
+  When expect_output does not match on multiline output,
+  the error message should show a line-by-line diff with
+  - for expected lines and + for actual lines.
+steps:
+  - name: diff shows expected line with minus marker
+    command: ./zig-out/bin/induct run specs/fixtures/diff-mismatch.yaml 2>&1; true
+    expect_output_contains: "- changed"
+    expect_exit_code: 0
+  - name: diff shows actual line with plus marker
+    command: ./zig-out/bin/induct run specs/fixtures/diff-mismatch.yaml 2>&1; true
+    expect_output_contains: "+ line2"
+    expect_exit_code: 0

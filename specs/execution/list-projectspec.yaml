@@ -1,0 +1,29 @@
+name: list command supports ProjectSpec files
+description: |
+  When a ProjectSpec file is passed to the list command,
+  it traverses inline specs and include files to list all specs.
+
+setup:
+  - run: mkdir -p /tmp/induct-list-project
+  - run: "printf 'name: alpha spec\ndescription: Alpha description\ntest:\n  command: echo alpha\n  expect_output_contains: alpha\n' > /tmp/induct-list-project/alpha.yaml"
+  - run: "printf 'name: beta spec\ndescription: Beta description\ntest:\n  command: echo beta\n  expect_output_contains: beta\n' > /tmp/induct-list-project/beta.yaml"
+  - run: "printf 'name: list test project\nspecs:\n  - name: inline gamma\n    description: Gamma description\n    test:\n      command: echo gamma\n      expect_output_contains: gamma\ninclude:\n  - alpha.yaml\n  - beta.yaml\n' > /tmp/induct-list-project/inductspec.yaml"
+
+steps:
+  - name: lists inline and included specs
+    command: ./zig-out/bin/induct list /tmp/induct-list-project/inductspec.yaml
+    expect_output_contains: "alpha spec"
+    expect_exit_code: 0
+
+  - name: includes beta from include
+    command: ./zig-out/bin/induct list /tmp/induct-list-project/inductspec.yaml
+    expect_output_contains: "beta spec"
+    expect_exit_code: 0
+
+  - name: includes inline gamma
+    command: ./zig-out/bin/induct list /tmp/induct-list-project/inductspec.yaml
+    expect_output_contains: "inline gamma"
+    expect_exit_code: 0
+
+teardown:
+  - run: rm -rf /tmp/induct-list-project

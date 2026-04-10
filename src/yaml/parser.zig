@@ -547,6 +547,8 @@ fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlV
     const expect_output_regex = if (test_map.get("expect_output_regex")) |v| v.getString() else null;
     const expect_stderr = if (test_map.get("expect_stderr")) |v| v.getString() else null;
     const expect_stderr_contains = if (test_map.get("expect_stderr_contains")) |v| v.getString() else null;
+    const expect_stderr_not_contains = if (test_map.get("expect_stderr_not_contains")) |v| v.getString() else null;
+    const expect_stderr_regex = if (test_map.get("expect_stderr_regex")) |v| v.getString() else null;
     const expect_exit_code: i32 = if (test_map.get("expect_exit_code")) |v|
         @intCast(v.getInt() orelse 0)
     else
@@ -570,6 +572,8 @@ fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlV
         .expect_output_regex = if (expect_output_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
         .expect_stderr = if (expect_stderr) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
         .expect_stderr_contains = if (expect_stderr_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_stderr_not_contains = if (expect_stderr_not_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_stderr_regex = if (expect_stderr_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
         .expect_exit_code = expect_exit_code,
         .generate = generate,
         .target_path = if (target_path) |tp| allocator.dupe(u8, tp) catch return ParseError.OutOfMemory else null,

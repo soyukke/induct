@@ -1,0 +1,4 @@
+name: 'test "quotes" in name'
+test:
+  command: echo hello
+  expect_output: "hello\n"

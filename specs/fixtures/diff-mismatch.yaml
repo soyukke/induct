@@ -1,0 +1,4 @@
+name: diff test
+test:
+  command: printf "line1\nline2\nline3\n"
+  expect_output: "line1\nchanged\nline3\n"

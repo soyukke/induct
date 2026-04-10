@@ -1,0 +1,8 @@
+name: stderr diff shows Stderr mismatch header
+description: |
+  When expect_stderr fails on multiline output, the diff header
+  should say "Stderr mismatch" not "Output mismatch".
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/stderr-diff-mismatch.yaml 2>&1; true
+  expect_output_contains: "Stderr mismatch"
+  expect_exit_code: 0

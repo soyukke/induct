@@ -1,0 +1,32 @@
+name: run with --filter on ProjectSpec
+description: |
+  The --filter flag on the run command filters specs by name substring
+  when running a ProjectSpec (inductspec.yaml), including both
+  inline specs and included spec files.
+
+setup:
+  - run: mkdir -p /tmp/induct-filter-run
+  - run: "printf 'name: alpha test\ntest:\n  command: echo alpha\n  expect_output_contains: alpha\n' > /tmp/induct-filter-run/alpha.yaml"
+  - run: "printf 'name: beta test\ntest:\n  command: echo beta\n  expect_output_contains: beta\n' > /tmp/induct-filter-run/beta.yaml"
+  - run: "printf 'name: filter test project\nspecs:\n  - name: inline gamma\n    test:\n      command: echo gamma\n      expect_output_contains: gamma\ninclude:\n  - alpha.yaml\n  - beta.yaml\n' > /tmp/induct-filter-run/inductspec.yaml"
+
+steps:
+  - name: filter matches only alpha from include
+    command: ./zig-out/bin/induct run /tmp/induct-filter-run/inductspec.yaml --filter alpha
+    expect_output_contains: "[PASS] alpha test"
+    expect_output_not_contains: "beta test"
+    expect_exit_code: 0
+
+  - name: filter matches inline spec
+    command: ./zig-out/bin/induct run /tmp/induct-filter-run/inductspec.yaml --filter gamma
+    expect_output_contains: "[PASS] inline gamma"
+    expect_output_not_contains: "alpha test"
+    expect_exit_code: 0
+
+  - name: filter with no matches runs nothing
+    command: ./zig-out/bin/induct run /tmp/induct-filter-run/inductspec.yaml --filter nonexistent_xyz
+    expect_output_contains: "Total: 0"
+    expect_exit_code: 0
+
+teardown:
+  - run: rm -rf /tmp/induct-filter-run

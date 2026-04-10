@@ -1,0 +1,21 @@
+name: parallel execution on ProjectSpec with -j
+description: |
+  The -j flag on the run command parallelizes spec execution
+  when running a ProjectSpec. 4 specs each taking 1s should
+  complete in ~1s with -j4, but ~4s sequentially.
+
+setup:
+  - run: mkdir -p /tmp/induct-parallel-project
+  - run: "printf 'name: slow alpha\ntest:\n  command: sleep 1 && echo alpha\n  expect_output_contains: alpha\n' > /tmp/induct-parallel-project/alpha.yaml"
+  - run: "printf 'name: slow beta\ntest:\n  command: sleep 1 && echo beta\n  expect_output_contains: beta\n' > /tmp/induct-parallel-project/beta.yaml"
+  - run: "printf 'name: slow gamma\ntest:\n  command: sleep 1 && echo gamma\n  expect_output_contains: gamma\n' > /tmp/induct-parallel-project/gamma.yaml"
+  - run: "printf 'name: parallel project\nspecs:\n  - name: inline delta\n    test:\n      command: sleep 1 && echo delta\n      expect_output_contains: delta\ninclude:\n  - alpha.yaml\n  - beta.yaml\n  - gamma.yaml\n' > /tmp/induct-parallel-project/inductspec.yaml"
+
+test:
+  command: ./zig-out/bin/induct run /tmp/induct-parallel-project/inductspec.yaml -j4
+  expect_output_contains: "passed: 4"
+  expect_exit_code: 0
+  timeout_ms: 3000
+
+teardown:
+  - run: rm -rf /tmp/induct-parallel-project

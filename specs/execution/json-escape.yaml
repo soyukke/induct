@@ -1,0 +1,15 @@
+name: JSON output escapes special characters
+description: |
+  JSON output must properly escape double quotes and backslashes
+  in spec names and error messages to produce valid JSON.
+
+steps:
+  - name: valid JSON for spec with quotes in name
+    command: ./zig-out/bin/induct run --json specs/fixtures/json-escape-quote.yaml 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print(d['spec_name'])"
+    expect_output_contains: 'quotes'
+    expect_exit_code: 0
+
+  - name: error message with newlines produces valid JSON
+    command: ./zig-out/bin/induct run --json specs/fixtures/diff-mismatch.yaml 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); print('valid')"
+    expect_output: "valid\n"
+    expect_exit_code: 0

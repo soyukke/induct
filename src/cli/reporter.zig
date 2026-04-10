@@ -74,15 +74,35 @@ pub const Reporter = struct {
         w.flush() catch {};
     }
 
+    fn writeJsonEscaped(w: anytype, s: []const u8) void {
+        var start: usize = 0;
+        for (s, 0..) |c, i| {
+            const esc: ?[]const u8 = switch (c) {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                else => null,
+            };
+            if (esc) |seq| {
+                if (i > start) w.writeAll(s[start..i]) catch {};
+                w.writeAll(seq) catch {};
+                start = i + 1;
+            }
+        }
+        if (start < s.len) w.writeAll(s[start..]) catch {};
+    }
+
     fn reportResultJson(self: *Self, result: SpecResult) void {
         var writer = self.getWriter();
         const w = &writer.interface;
 
-        w.print(
-            \\{{"id":"{s}","spec_name":"{s}","passed":{s},"exit_code":{d},"duration_ms":{d}
-        , .{
-            result.id,
-            result.spec_name,
+        w.print("{{\"id\":\"", .{}) catch {};
+        writeJsonEscaped(w, result.id);
+        w.print("\",\"spec_name\":\"", .{}) catch {};
+        writeJsonEscaped(w, result.spec_name);
+        w.print("\",\"passed\":{s},\"exit_code\":{d},\"duration_ms\":{d}", .{
             if (result.passed) "true" else "false",
             result.actual_exit_code,
             result.duration_ms,
@@ -93,7 +113,9 @@ pub const Reporter = struct {
         }
 
         if (result.error_message) |msg| {
-            w.print(",\"error\":\"{s}\"", .{msg}) catch {};
+            w.print(",\"error\":\"", .{}) catch {};
+            writeJsonEscaped(w, msg);
+            w.print("\"", .{}) catch {};
         }
 
         w.print("}}\n", .{}) catch {};
@@ -252,8 +274,9 @@ pub fn printHelp(writer: anytype) void {
         \\    --junit              Output results in JUnit XML format
         \\    --fail-fast          Stop on first failure
         \\    --dry-run            Show what would be executed without running
-        \\    --filter <pattern>   Filter specs by name substring (run-dir)
-        \\    -j <N>               Run up to N specs in parallel (run-dir)
+        \\    --filter <pattern>   Filter specs by name substring (run, run-dir)
+        \\    --timeout-ms <ms>   Default timeout for commands without timeout_ms
+        \\    -j <N>               Run up to N specs in parallel (run, run-dir)
         \\    --markdown            Output as markdown table (list)
         \\    --with-setup         Include setup/teardown in template (init)
         \\    --template <type>    Template type: basic, setup, api, cli, project (init)
@@ -293,6 +316,8 @@ pub fn printSchema(writer: anytype) void {
         \\  expect_output_regex: "hel+"            # Optional: stdout regex (POSIX ERE)
         \\  expect_stderr: "warn\n"                # Optional: exact stderr match
         \\  expect_stderr_contains: "warn"         # Optional: stderr substring match
+        \\  expect_stderr_not_contains: "FATAL"    # Optional: stderr negative match
+        \\  expect_stderr_regex: "warn.*"           # Optional: stderr regex (POSIX ERE)
         \\  expect_exit_code: 0                    # Optional: exit code (default: 0)
         \\  env:                                   # Optional: environment variables
         \\    KEY: value
@@ -408,8 +433,10 @@ pub fn printSchema(writer: anytype) void {
     , .{}) catch {};
 }
 
+pub const version = std.mem.trimRight(u8, @embedFile("../VERSION"), &.{ '\n', '\r', ' ' });
+
 pub fn printVersion(writer: anytype) void {
-    writer.print("induct v0.1.0\n", .{}) catch {};
+    writer.print("induct v{s}\n", .{version}) catch {};
 }
 
 test "Reporter initialization" {

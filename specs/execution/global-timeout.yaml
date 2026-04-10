@@ -1,0 +1,16 @@
+name: global --timeout-ms flag
+description: |
+  The --timeout-ms flag sets a default timeout for all commands
+  that don't have their own timeout_ms. Spec-level timeout_ms
+  takes precedence over the global default.
+
+steps:
+  - name: global timeout kills hanging command
+    command: ./zig-out/bin/induct run specs/fixtures/no-timeout-hang.yaml --timeout-ms 1000
+    expect_output_contains: "timed out"
+    expect_exit_code: 1
+
+  - name: spec-level timeout overrides shorter global
+    command: ./zig-out/bin/induct run specs/fixtures/spec-timeout-override.yaml --timeout-ms 200
+    expect_output_contains: "[PASS]"
+    expect_exit_code: 0

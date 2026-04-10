@@ -12,7 +12,7 @@ specs:
   - name: version command works
     test:
       command: ./zig-out/bin/induct version
-      expect_output_contains: "0.1.0"
+      expect_output_contains: "induct v"
       expect_exit_code: 0
 
   - name: echo example passes
@@ -69,6 +69,33 @@ include:
   - execution/dry-run.yaml
   - execution/filter.yaml
   - execution/parallel.yaml
+
+  # Stderr regex
+  - execution/expect-stderr-regex.yaml
+  - execution/expect-stderr-regex-fail.yaml
+
+  # Stderr not contains
+  - execution/expect-stderr-not-contains.yaml
+
+  # Diff output
+  - execution/diff-output.yaml
+  - execution/diff-long-output.yaml
+  - execution/diff-stderr-header.yaml
+
+  # JSON escaping
+  - execution/json-escape.yaml
+
+  # Filter on run
+  - execution/run-filter.yaml
+
+  # Parallel ProjectSpec
+  - execution/parallel-projectspec.yaml
+
+  # Global timeout
+  - execution/global-timeout.yaml
+
+  # List ProjectSpec
+  - execution/list-projectspec.yaml
 
   # Steps tests
   - execution/steps-basic.yaml

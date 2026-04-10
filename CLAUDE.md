@@ -12,10 +12,24 @@ Induct is an executable specification engine for AI-driven development, written 
 zig build              # Compile the project
 zig build run          # Run the executable
 zig build run -- [args]  # Run with arguments (e.g., zig build run -- run specs/examples/echo.yaml)
-zig build test         # Run all tests
+zig build test         # Run all tests (unit tests for both root module and exe module)
 ```
 
 Requires Zig 0.15.2 or later. Output binary: `zig-out/bin/induct`
+
+### Self-Test (Regression Check)
+
+Induct uses itself for integration testing. After building, run the full self-test suite:
+
+```bash
+zig build && ./zig-out/bin/induct run specs/inductspec.yaml
+```
+
+To run a single spec file:
+
+```bash
+./zig-out/bin/induct run specs/cli/help.yaml
+```
 
 ## Architecture
 
@@ -23,11 +37,12 @@ Requires Zig 0.15.2 or later. Output binary: `zig-out/bin/induct`
 src/
 ├── main.zig           # CLI entry point
 ├── root.zig           # Public module exports
+├── VERSION            # Single-line version string (e.g., "0.2.1"), read at build time
 ├── cli/
 │   ├── args.zig       # Argument parsing (Command union type)
 │   └── reporter.zig   # Text/JSON/JUnit output formatting, schema/help output
 ├── core/
-│   ├── spec.zig       # Spec, TestCase, SetupCommand, TeardownCommand structs
+│   ├── spec.zig       # Spec, TestCase, ProjectSpec, SetupCommand, TeardownCommand structs
 │   ├── result.zig     # SpecResult, RunSummary types
 │   ├── executor.zig   # Spec execution engine (executeSpec, executeSpecFromFile, executeSpecsFromDir)
 │   └── validator.zig  # Output and exit code validation
@@ -37,6 +52,22 @@ src/
     └── parser.zig     # Custom YAML parser (no external dependencies)
 ```
 
+### Data Flow
+
+1. CLI (`args.zig`) parses command + flags → `Command` union
+2. `reporter.zig` dispatches to the appropriate handler
+3. For `run`/`run-dir`: YAML file → `parser.zig` → `Spec` or `ProjectSpec` → `executor.zig`
+4. `executor.zig` runs commands via `runner.zig`, validates output via `validator.zig` → `SpecResult`
+5. Results formatted by `reporter.zig` (text/JSON/JUnit)
+
+### ProjectSpec (Spec Aggregation)
+
+`ProjectSpec` (`spec.zig`) aggregates multiple specs via two mechanisms:
+- `specs:` — inline spec definitions within the YAML
+- `include:` — references to external spec YAML files (relative paths)
+
+`specs/inductspec.yaml` is the root ProjectSpec that includes all test suites. New specs should be added to the appropriate `specs/` subdirectory and registered in `inductspec.yaml`'s `include:` list.
+
 ## CLI Usage
 
 ```bash
@@ -45,6 +76,7 @@ induct run-dir <dir>         # Run all specs in a directory
 induct validate <spec.yaml>  # Validate spec syntax without executing
 induct schema                # Show YAML spec schema reference
 induct init [file.yaml]      # Generate template spec file
+induct list <spec.yaml>      # List spec names
 induct version               # Show version
 induct help                  # Show help
 ```
@@ -69,6 +101,7 @@ test:
   expect_output_regex: "hel+"            # Optional: regex match (POSIX ERE)
   expect_stderr: "warn\n"               # Optional: exact stderr match
   expect_stderr_contains: "warn"         # Optional: stderr substring match
+  expect_stderr_regex: "warn.*"          # Optional: stderr regex (POSIX ERE)
   expect_exit_code: 0                    # Optional: expected exit code (default: 0)
   env:                                   # Optional: environment variables
     KEY: value
@@ -101,6 +134,7 @@ Steps execute sequentially. If one fails, remaining steps are skipped.
 - YAML parser is custom-built (no dependencies) in `yaml/parser.zig`
 - Executor generates unique run IDs using timestamp + counter
 - Output capture limited to 10MB per command
+- Version is stored in `src/VERSION` (single line, no newline) and also in `build.zig.zon`
 
 ## Development Flow (Induct-Driven Development)
 
@@ -148,14 +182,14 @@ induct run specs/path/to/spec.yaml
 ### 6. Run All Specs (No Regressions)
 
 ```bash
-induct run specs/inductspec.yaml
+zig build && ./zig-out/bin/induct run specs/inductspec.yaml
 ```
 
 ### Spec Organization
 
 ```
 specs/
-├── inductspec.yaml      # Project spec (includes other specs)
+├── inductspec.yaml      # Root ProjectSpec (includes all test suites)
 ├── cli/                 # CLI behavior specs
 ├── execution/           # Spec execution specs
 ├── errors/              # Error handling specs

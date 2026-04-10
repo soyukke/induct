@@ -1,7 +1,10 @@
 name: version command
-description: Tests the version command output
+description: |
+  The version command prints "induct v" followed by a semver version
+  (e.g., "induct v0.2.1"). This ensures both the format and that a
+  valid version number is present.
 
 test:
   command: ./zig-out/bin/induct version
-  expect_output_contains: "0.1.0"
+  expect_output_regex: "^induct v[0-9]+\\.[0-9]+\\.[0-9]+"
   expect_exit_code: 0
