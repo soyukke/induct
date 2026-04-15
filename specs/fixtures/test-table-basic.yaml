@@ -1,0 +1,10 @@
+name: test table basic
+description: test_table with exact output matching
+
+test_table:
+  command: "echo '${input}'"
+  cases:
+    - input: hello
+      expect_output: "hello\n"
+    - input: world
+      expect_output: "world\n"

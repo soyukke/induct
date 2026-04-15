@@ -1,0 +1,22 @@
+name: RFC 4648 Base64 decoding
+description: |
+  RFC 4648 Section 10 test vectors の逆方向。
+  Base64 decoder は符号化文字列を元のバイト列に復元する。
+
+test_table:
+  command: "printf '${encoded}' | ./examples/base64/zig-out/bin/base64 decode"
+  cases:
+    - encoded: ""
+      expect_output: ""
+    - encoded: "Zg=="
+      expect_output: "f"
+    - encoded: "Zm8="
+      expect_output: "fo"
+    - encoded: "Zm9v"
+      expect_output: "foo"
+    - encoded: "Zm9vYg=="
+      expect_output: "foob"
+    - encoded: "Zm9vYmE="
+      expect_output: "fooba"
+    - encoded: "Zm9vYmFy"
+      expect_output: "foobar"

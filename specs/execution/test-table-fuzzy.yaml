@@ -1,0 +1,9 @@
+name: test_table supports fuzzy assertions
+description: |
+  test_table の各ケースで expect_output, expect_output_contains,
+  expect_output_regex 等を自由に使い分けられる。
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/test-table-fuzzy.yaml
+  expect_output_contains: "[PASS]"
+  expect_output_not_contains: "[FAIL]"
+  expect_exit_code: 0
