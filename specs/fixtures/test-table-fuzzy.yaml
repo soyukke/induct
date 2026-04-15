@@ -1,0 +1,12 @@
+name: test table fuzzy assertions
+description: test_table with mixed assertion types per case
+
+test_table:
+  command: "echo '${input}'"
+  cases:
+    - input: hello
+      expect_output: "hello\n"
+    - input: hello_world
+      expect_output_contains: "world"
+    - input: hello_123
+      expect_output_regex: "hello_[0-9]+"

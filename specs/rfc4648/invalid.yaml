@@ -1,0 +1,16 @@
+name: RFC 4648 invalid input rejection
+description: |
+  RFC 4648 Section 3.3: 実装はBase64アルファベット外の文字を含む
+  入力を拒否しなければならない(MUST reject)。
+
+test_table:
+  command: "printf '${encoded}' | ./examples/base64/zig-out/bin/base64 decode"
+  cases:
+    - name: reject invalid character
+      encoded: "!invalid!"
+      expect_exit_code: 1
+      expect_stderr_contains: "invalid"
+    - name: reject truncated padding
+      encoded: "Zg="
+      expect_exit_code: 1
+      expect_stderr_contains: "invalid"

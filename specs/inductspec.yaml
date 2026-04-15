@@ -101,6 +101,10 @@ include:
   - execution/steps-basic.yaml
   - execution/steps-fail-skips.yaml
 
+  # Test table
+  - execution/test-table-basic.yaml
+  - execution/test-table-fuzzy.yaml
+
   # Error handling tests
   - errors/file-not-found.yaml
   - errors/missing-spec-path.yaml

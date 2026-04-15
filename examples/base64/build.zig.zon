@@ -1,0 +1,6 @@
+.{
+    .name = .base64,
+    .version = "0.1.0",
+    .fingerprint = 0xcf92327616c72bde,
+    .paths = .{""},
+}

@@ -1,0 +1,9 @@
+name: test_table runs all cases
+description: |
+  test_table はコマンドテンプレートとケース一覧からテストを生成して実行する。
+  各ケースは独立したテストとして [PASS]/[FAIL] を出力する。
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/test-table-basic.yaml
+  expect_output_contains: "[PASS]"
+  expect_output_not_contains: "[FAIL]"
+  expect_exit_code: 0
