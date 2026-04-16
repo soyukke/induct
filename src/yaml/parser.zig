@@ -299,14 +299,17 @@ pub const Parser = struct {
                 items.append(self.allocator, try self.parseMap(indent + 2)) catch return ParseError.OutOfMemory;
             } else {
                 // Check if it's a map on the same line (key: value)
+                // Skip colon detection if value starts with a quote (it's a string)
                 var has_colon = false;
-                var peek = self.pos;
-                while (peek < self.source.len and self.source[peek] != '\n') {
-                    if (self.source[peek] == ':') {
-                        has_colon = true;
-                        break;
+                if (self.source[self.pos] != '"' and self.source[self.pos] != '\'') {
+                    var peek = self.pos;
+                    while (peek < self.source.len and self.source[peek] != '\n') {
+                        if (self.source[peek] == ':') {
+                            has_colon = true;
+                            break;
+                        }
+                        peek += 1;
                     }
-                    peek += 1;
                 }
 
                 if (has_colon) {
