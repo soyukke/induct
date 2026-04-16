@@ -1,0 +1,6 @@
+.{
+    .name = .uri,
+    .version = "0.1.0",
+    .fingerprint = 0x841cb1217528d1f6,
+    .paths = .{""},
+}
