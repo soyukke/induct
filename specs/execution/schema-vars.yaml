@@ -1,0 +1,7 @@
+name: schema shows vars format
+description: |
+  induct schema の出力に vars セクションが含まれる。
+test:
+  command: ./zig-out/bin/induct schema
+  expect_output_contains: "vars:"
+  expect_exit_code: 0

@@ -304,11 +304,14 @@ pub fn printSchema(writer: anytype) void {
         \\  name is the title, description is     #   Shown by `induct list`.
         \\  the body. test: section verifies it.
         \\
+        \\vars:                                    # Optional: template variables
+        \\  BIN: ./my-tool                         #   Expanded as ${{BIN}} in commands
+        \\
         \\setup:                                  # Optional: pre-test commands
         \\  - run: echo "setup"
         \\
         \\test:                                   # Required: test definition
-        \\  command: echo hello                    # Required: command to execute
+        \\  command: ${{BIN}} hello                  # Required: command to execute
         \\  input: "stdin data"                    # Optional: stdin input
         \\  expect_output: "hello\n"               # Optional: exact stdout match
         \\  expect_output_contains: "llo"          # Optional: stdout substring match
