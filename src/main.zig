@@ -381,7 +381,28 @@ fn handleList(allocator: std.mem.Allocator, path: []const u8, markdown: bool, wr
     }
 
     if (is_file) {
-        try collectProjectSpecEntries(allocator, path, &entries);
+        if (induct.core.executor.isProjectSpecFile(path)) {
+            try collectProjectSpecEntries(allocator, path, &entries);
+        } else {
+            // Single spec file: show name and description directly
+            var spec = induct.yaml.parser.parseSpecFromFile(allocator, path) catch |err| {
+                writer.print("Error: Failed to parse {s}: {}\n", .{ path, err }) catch {};
+                return;
+            };
+            defer spec.deinit(allocator);
+
+            writer.print("{s}\n", .{spec.name}) catch {};
+            if (spec.description) |desc| {
+                // Print description with indentation
+                var line_iter = std.mem.splitScalar(u8, desc, '\n');
+                while (line_iter.next()) |line| {
+                    if (line.len > 0) {
+                        writer.print("  {s}\n", .{line}) catch {};
+                    }
+                }
+            }
+            return;
+        }
     } else {
         try collectDirEntries(allocator, path, &entries);
     }
@@ -401,10 +422,15 @@ fn handleList(allocator: std.mem.Allocator, path: []const u8, markdown: bool, wr
         }
     } else {
         for (entries.items) |e| {
-            writer.print("{s}", .{e.file}) catch {};
-            writer.print("  {s}", .{e.name}) catch {};
+            writer.print("{s}\n", .{e.name}) catch {};
             if (e.description.len > 0) {
-                writer.print(" - {s}", .{e.description}) catch {};
+                // Print multi-line description with indentation
+                var line_iter = std.mem.splitScalar(u8, e.description, '\n');
+                while (line_iter.next()) |line| {
+                    if (line.len > 0) {
+                        writer.print("  {s}\n", .{line}) catch {};
+                    }
+                }
             }
             writer.print("\n", .{}) catch {};
         }
@@ -425,7 +451,7 @@ fn collectDirEntries(allocator: std.mem.Allocator, dir_path: []const u8, entries
 
         var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
         const name = try allocator.dupe(u8, spec.name);
-        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
+        const desc = if (spec.description) |d| try allocator.dupe(u8, d) else try allocator.dupe(u8, "");
         const file = try allocator.dupe(u8, entry.name);
         spec.deinit(allocator);
 
@@ -442,7 +468,7 @@ fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, ent
     // Inline specs
     for (project.specs) |spec| {
         const name = try allocator.dupe(u8, spec.name);
-        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
+        const desc = if (spec.description) |d| try allocator.dupe(u8, d) else try allocator.dupe(u8, "");
         const file = try allocator.dupe(u8, "(inline)");
         try entries.append(allocator, .{ .name = name, .description = desc, .file = file });
     }
@@ -463,7 +489,7 @@ fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, ent
 
         var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
         const name = try allocator.dupe(u8, spec.name);
-        const desc = if (spec.description) |d| try flattenOneLine(allocator, d) else try allocator.dupe(u8, "");
+        const desc = if (spec.description) |d| try allocator.dupe(u8, d) else try allocator.dupe(u8, "");
         const file = try allocator.dupe(u8, include_path);
         spec.deinit(allocator);
 
