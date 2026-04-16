@@ -1,0 +1,7 @@
+name: schema shows test_table format
+description: |
+  induct schema の出力に test_table セクションが含まれる。
+test:
+  command: ./zig-out/bin/induct schema
+  expect_output_contains: "test_table:"
+  expect_exit_code: 0

@@ -356,6 +356,29 @@ pub fn printSchema(writer: anytype) void {
         \\- setup runs once before all steps, teardown runs once after
         \\- `steps:` and `test:` are mutually exclusive
         \\
+        \\## Table-Driven Spec
+        \\
+        \\```yaml
+        \\name: string                            # Required: spec name
+        \\description: string                     # Recommended: specification
+        \\
+        \\test_table:                             # Table-driven tests (replaces test:/steps:)
+        \\  command: "echo '${{input}}'"            # Required: command template with ${{var}}
+        \\  cases:                                # Required: list of test cases
+        \\    - input: hello                      #   Variables (any non-reserved key)
+        \\      expect_output: "hello\n"          #   Assertions (any expect_* field)
+        \\    - input: world
+        \\      expect_output_contains: "world"   # Each case can use different assertions
+        \\    - name: custom name                 # Optional: explicit case name
+        \\      input: fail
+        \\      expect_exit_code: 1               # exit_code, stderr, regex all supported
+        \\```
+        \\
+        \\- `${{var}}` in command is replaced with the case's variable value
+        \\- Case names auto-generated from variable values if not specified
+        \\- Expanded to steps internally; setup/teardown work as normal
+        \\- `test_table:`, `test:`, and `steps:` are mutually exclusive
+        \\
         \\## Project Spec (inductspec.yaml)
         \\
         \\```yaml
