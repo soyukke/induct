@@ -1,0 +1,9 @@
+name: auto-detect ProjectSpec by content
+description: |
+  include: や specs: を持つYAMLファイルは、ファイル名に関係なく
+  ProjectSpec として自動判定される。
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/rfc4648-project.yaml
+  expect_output_contains: "[PASS]"
+  expect_output_not_contains: "[FAIL]"
+  expect_exit_code: 0
