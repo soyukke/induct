@@ -832,6 +832,29 @@ pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
     const teardown = try parseTeardownCommands(allocator, map);
     const steps = try parseSteps(allocator, map);
 
+    // Expand vars in setup and teardown commands
+    if (vars_map_ptr) |vars_map| {
+        if (setup) |setup_cmds| {
+            for (setup_cmds) |*cmd| {
+                const expanded = try expandTemplate(allocator, cmd.run, vars_map);
+                allocator.free(@constCast(cmd).run);
+                @constCast(cmd).run = expanded;
+            }
+        }
+        if (teardown) |teardown_cmds| {
+            for (teardown_cmds) |*cmd| {
+                switch (cmd.*) {
+                    .run => |run_cmd| {
+                        const expanded = try expandTemplate(allocator, run_cmd, vars_map);
+                        allocator.free(run_cmd);
+                        @constCast(cmd).* = .{ .run = expanded };
+                    },
+                    .kill_process => {},
+                }
+            }
+        }
+    }
+
     // steps and test are mutually exclusive
     if (steps) |steps_list| {
         if (vars_map_ptr) |vars_map| {
