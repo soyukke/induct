@@ -110,6 +110,7 @@ include:
   - execution/vars-basic.yaml
   - execution/vars-steps.yaml
   - execution/vars-setup.yaml
+  - execution/schema-vars.yaml
 
   # ProjectSpec auto-detection
   - execution/projectspec-auto-detect.yaml

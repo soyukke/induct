@@ -66,7 +66,7 @@ src/
 - `specs:` — inline spec definitions within the YAML
 - `include:` — references to external spec YAML files (relative paths)
 
-`specs/inductspec.yaml` is the root ProjectSpec that includes all test suites. New specs should be added to the appropriate `specs/` subdirectory and registered in `inductspec.yaml`'s `include:` list.
+`specs/inductspec.yaml` is the root ProjectSpec that includes all test suites. New specs should be added to the appropriate `specs/` subdirectory and registered in `inductspec.yaml`'s `include:` list. Any YAML file with top-level `include:` or `specs:` keys is auto-detected as a ProjectSpec.
 
 ## CLI Usage
 
@@ -89,11 +89,14 @@ Flags: `-v/--verbose`, `--json`, `--junit`, `--fail-fast`, `--dry-run`, `--filte
 name: spec name
 description: optional description
 
+vars:                                     # Optional: template variables
+  BIN: ./my-tool                          #   Expanded as ${BIN} in commands
+
 setup:                                    # Optional pre-test commands
   - run: echo "setup"
 
 test:
-  command: echo hello                     # Required: command to execute
+  command: ${BIN} hello                   # Required: command to execute
   input: "stdin data"                     # Optional: stdin input
   expect_output: "hello\n"               # Optional: exact output match
   expect_output_contains: "llo"          # Optional: substring match
@@ -127,6 +130,31 @@ steps:
 ```
 
 Steps execute sequentially. If one fails, remaining steps are skipped.
+
+### Table-Driven Spec (test_table: replaces test:/steps:)
+
+```yaml
+name: RFC 4648 Base64 encoding
+test_table:
+  command: "printf '${input}' | ./base64 encode"
+  cases:
+    - input: f
+      expect_output: "Zg=="
+    - input: foo
+      expect_output_contains: "m9"
+    - input: "!!"
+      expect_exit_code: 1
+```
+
+`${var}` in command is replaced per case. Each case can use any `expect_*` assertion. Expanded to steps internally.
+
+### ProjectSpec Auto-Detection
+
+ProjectSpec is detected by:
+1. Filename ending with `inductspec.yaml` (convention)
+2. Content having top-level `include:` or `specs:` keys (auto-detection)
+
+Any YAML file with `include:` or `specs:` is treated as a ProjectSpec regardless of filename.
 
 ## Key Implementation Details
 
