@@ -21,21 +21,23 @@ pub const RunError = error{
     SpawnFailed,
 };
 
-fn timeoutWatcher(child: *std.process.Child, timeout_ms: u64, timed_out: *std.atomic.Value(bool), process_done: *std.atomic.Value(bool)) void {
-    const check_interval_ns: u64 = 10 * std.time.ns_per_ms; // 10ms
-    var elapsed_ns: u64 = 0;
-    const timeout_ns: u64 = timeout_ms * std.time.ns_per_ms;
+fn timeoutFromMilliseconds(timeout_ms: ?u64) std.Io.Timeout {
+    return if (timeout_ms) |ms|
+        .{ .duration = .{
+            .clock = .awake,
+            .raw = std.Io.Duration.fromMilliseconds(@intCast(ms)),
+        } }
+    else
+        .none;
+}
 
-    while (elapsed_ns < timeout_ns) {
-        if (process_done.load(.acquire)) return;
-        std.Thread.sleep(check_interval_ns);
-        elapsed_ns += check_interval_ns;
-    }
-
-    if (!process_done.load(.acquire)) {
-        timed_out.store(true, .release);
-        _ = child.kill() catch {};
-    }
+fn termExitCode(term: std.process.Child.Term) i32 {
+    return switch (term) {
+        .exited => |code| @as(i32, code),
+        .signal => |sig| -@as(i32, @intCast(@intFromEnum(sig))),
+        .stopped => |sig| -@as(i32, @intCast(@intFromEnum(sig))),
+        .unknown => -1,
+    };
 }
 
 pub fn runCommand(
@@ -44,76 +46,84 @@ pub fn runCommand(
     stdin_data: ?[]const u8,
     timeout_ms: ?u64,
 ) !ProcessResult {
-    const start_time = std.time.nanoTimestamp();
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const start_time = std.Io.Clock.awake.now(io);
 
     // Parse command into arguments using shell
     const argv = [_][]const u8{ "sh", "-c", command };
 
-    var child = std.process.Child.init(&argv, allocator);
-    child.stdin_behavior = if (stdin_data != null) .Pipe else .Inherit;
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
-
-    child.spawn() catch {
+    var child = std.process.spawn(io, .{
+        .argv = &argv,
+        .stdin = if (stdin_data != null) .pipe else .inherit,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    }) catch {
         return RunError.SpawnFailed;
     };
+    defer if (child.id != null) child.kill(io);
 
     // Write stdin if provided
     if (stdin_data) |data| {
         if (child.stdin) |stdin| {
-            stdin.writeAll(data) catch {};
-            stdin.close();
+            stdin.writeStreamingAll(io, data) catch {};
+            stdin.close(io);
             child.stdin = null;
         }
     }
 
-    // Set up timeout if specified
-    var timed_out = std.atomic.Value(bool).init(false);
-    var process_done = std.atomic.Value(bool).init(false);
-    var timeout_thread: ?std.Thread = null;
+    var multi_reader_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
+    var multi_reader: std.Io.File.MultiReader = undefined;
+    multi_reader.init(allocator, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    defer multi_reader.deinit();
 
-    if (timeout_ms) |ms| {
-        timeout_thread = std.Thread.spawn(.{}, timeoutWatcher, .{
-            &child, ms, &timed_out, &process_done,
-        }) catch null;
+    const stdout_reader = multi_reader.reader(0);
+    const stderr_reader = multi_reader.reader(1);
+    const output_limit = std.Io.Limit.limited(10 * 1024 * 1024);
+    const timeout = timeoutFromMilliseconds(timeout_ms);
+    var timed_out = false;
+
+    while (multi_reader.fill(64, timeout)) |_| {
+        if (stdout_reader.buffered().len > @intFromEnum(output_limit) or stderr_reader.buffered().len > @intFromEnum(output_limit)) {
+            return RunError.CommandFailed;
+        }
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        error.Timeout => {
+            timed_out = true;
+            child.kill(io);
+            multi_reader.fillRemaining(.none) catch {};
+        },
+        else => return RunError.CommandFailed,
     }
 
-    // Read stdout
-    const stdout = if (child.stdout) |stdout_file|
-        stdout_file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch &[_]u8{}
+    if (!timed_out) {
+        multi_reader.checkAnyError() catch |err| switch (err) {
+            error.OutOfMemory => return RunError.OutOfMemory,
+            else => return RunError.CommandFailed,
+        };
+    }
+
+    const stdout = multi_reader.toOwnedSlice(0) catch return RunError.OutOfMemory;
+    errdefer allocator.free(stdout);
+
+    const stderr = multi_reader.toOwnedSlice(1) catch return RunError.OutOfMemory;
+    errdefer allocator.free(stderr);
+
+    const exit_code = if (timed_out)
+        -1
     else
-        &[_]u8{};
+        termExitCode(child.wait(io) catch return RunError.CommandFailed);
 
-    // Read stderr
-    const stderr = if (child.stderr) |stderr_file|
-        stderr_file.readToEndAlloc(allocator, 10 * 1024 * 1024) catch &[_]u8{}
-    else
-        &[_]u8{};
-
-    // Wait for process to complete
-    const term = child.wait() catch {
-        process_done.store(true, .release);
-        if (timeout_thread) |t| t.join();
-        return RunError.CommandFailed;
-    };
-
-    const end_time = std.time.nanoTimestamp();
-    process_done.store(true, .release);
-    if (timeout_thread) |t| t.join();
-
-    const exit_code: i32 = switch (term) {
-        .Exited => |code| @as(i32, code),
-        .Signal => |sig| -@as(i32, @intCast(sig)),
-        .Stopped => |sig| -@as(i32, @intCast(sig)),
-        .Unknown => -1,
-    };
+    const end_time = std.Io.Clock.awake.now(io);
 
     return ProcessResult{
         .stdout = if (stdout.len > 0) stdout else allocator.dupe(u8, "") catch return RunError.OutOfMemory,
         .stderr = if (stderr.len > 0) stderr else allocator.dupe(u8, "") catch return RunError.OutOfMemory,
         .exit_code = exit_code,
-        .duration_ns = @intCast(end_time - start_time),
-        .timed_out = timed_out.load(.acquire),
+        .duration_ns = @intCast(start_time.durationTo(end_time).toNanoseconds()),
+        .timed_out = timed_out,
     };
 }
 

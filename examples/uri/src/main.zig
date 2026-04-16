@@ -224,21 +224,22 @@ fn mergePaths(allocator: std.mem.Allocator, base: Uri, ref_path: []const u8) ![]
     return try allocator.dupe(u8, ref_path);
 }
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    const raw_args = try init.minimal.args.toSlice(init.arena.allocator());
+    const args: []const []const u8 = @ptrCast(raw_args);
 
     if (args.len < 3) {
         var buf: [256]u8 = undefined;
-        var writer = std.fs.File.stderr().writer(&buf);
+        var writer = std.Io.File.stderr().writer(io, &buf);
         writer.interface.writeAll("Usage: uri <parse|resolve> <uri> [ref]\n") catch {};
         writer.interface.flush() catch {};
         std.process.exit(1);
     }
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     if (std.mem.eql(u8, args[1], "parse")) {
@@ -247,7 +248,7 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, args[1], "resolve")) {
         if (args.len < 4) {
             var buf: [256]u8 = undefined;
-            var writer = std.fs.File.stderr().writer(&buf);
+            var writer = std.Io.File.stderr().writer(io, &buf);
             writer.interface.writeAll("Usage: uri resolve <base> <ref>\n") catch {};
             writer.interface.flush() catch {};
             std.process.exit(1);

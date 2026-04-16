@@ -79,20 +79,18 @@ const templates = struct {
     }
 };
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{ .thread_safe = true }){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    const raw_args = try init.minimal.args.toSlice(init.arena.allocator());
+    const args: []const []const u8 = @ptrCast(raw_args);
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     var stderr_buf: [4096]u8 = undefined;
-    var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+    var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
     const stderr = &stderr_writer.interface;
 
     const command = induct.cli.args.parseArgs(args) catch |err| {
@@ -126,7 +124,7 @@ pub fn main() !void {
                 .json
             else
                 .text;
-            var reporter = induct.cli.reporter.Reporter.initWithFormat(run_args.verbose, format);
+            var reporter = induct.cli.reporter.Reporter.initWithFormat(io, run_args.verbose, format);
 
             const options = induct.core.executor.ExecuteOptions{
                 .fail_fast = run_args.fail_fast,
@@ -137,7 +135,7 @@ pub fn main() !void {
 
             if (run_args.dry_run) {
                 // Dry-run mode: parse and display without executing
-                try handleDryRun(allocator, run_args.spec_path, &reporter);
+                try handleDryRun(io, allocator, run_args.spec_path, &reporter);
                 return;
             }
 
@@ -196,10 +194,10 @@ pub fn main() !void {
                 .json
             else
                 .text;
-            var reporter = induct.cli.reporter.Reporter.initWithFormat(run_args.verbose, format);
+            var reporter = induct.cli.reporter.Reporter.initWithFormat(io, run_args.verbose, format);
 
             if (run_args.dry_run) {
-                try handleDryRunDir(allocator, run_args.dir_path, &reporter);
+                try handleDryRunDir(io, allocator, run_args.dir_path, &reporter);
                 return;
             }
 
@@ -237,7 +235,7 @@ pub fn main() !void {
             const template = templates.get(init_args.template);
 
             if (init_args.output_path) |path| {
-                const file = std.fs.cwd().createFile(path, .{ .exclusive = true }) catch |err| {
+                const file = std.Io.Dir.cwd().createFile(io, path, .{ .exclusive = true }) catch |err| {
                     if (err == error.PathAlreadyExists) {
                         stderr.print("Error: File '{s}' already exists\n", .{path}) catch {};
                     } else {
@@ -246,8 +244,8 @@ pub fn main() !void {
                     stderr.flush() catch {};
                     std.process.exit(1);
                 };
-                defer file.close();
-                file.writeAll(template) catch |write_err| {
+                defer file.close(io);
+                file.writeStreamingAll(io, template) catch |write_err| {
                     stderr.print("Error: Failed to write file: {}\n", .{write_err}) catch {};
                     stderr.flush() catch {};
                     std.process.exit(1);
@@ -274,7 +272,7 @@ pub fn main() !void {
             }
         },
         .list_cmd => |list_args| {
-            try handleList(allocator, list_args.dir_path, list_args.markdown, stdout);
+            try handleList(io, allocator, list_args.dir_path, list_args.markdown, stdout);
             stdout.flush() catch {};
         },
         .schema => {
@@ -292,7 +290,7 @@ pub fn main() !void {
     }
 }
 
-fn handleDryRun(allocator: std.mem.Allocator, spec_path: []const u8, reporter: *induct.cli.reporter.Reporter) !void {
+fn handleDryRun(io: std.Io, allocator: std.mem.Allocator, spec_path: []const u8, reporter: *induct.cli.reporter.Reporter) !void {
     if (induct.core.executor.isProjectSpecFile(spec_path)) {
         var project = try induct.yaml.parser.parseProjectSpecFromFile(allocator, spec_path);
         defer project.deinit(allocator);
@@ -302,7 +300,7 @@ fn handleDryRun(allocator: std.mem.Allocator, spec_path: []const u8, reporter: *
         }
         for (project.include) |include_path| {
             var stdout_buf: [4096]u8 = undefined;
-            var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+            var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
             const stdout = &stdout_writer.interface;
             stdout.print("[DRY-RUN] include: {s}\n", .{include_path}) catch {};
             stdout.flush() catch {};
@@ -314,12 +312,12 @@ fn handleDryRun(allocator: std.mem.Allocator, spec_path: []const u8, reporter: *
     }
 }
 
-fn handleDryRunDir(allocator: std.mem.Allocator, dir_path: []const u8, reporter: *induct.cli.reporter.Reporter) !void {
-    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-    defer dir.close();
+fn handleDryRunDir(io: std.Io, allocator: std.mem.Allocator, dir_path: []const u8, reporter: *induct.cli.reporter.Reporter) !void {
+    var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
+    defer dir.close(io);
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
 
@@ -328,7 +326,7 @@ fn handleDryRunDir(allocator: std.mem.Allocator, dir_path: []const u8, reporter:
 
         var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch |err| {
             var stdout_buf: [4096]u8 = undefined;
-            var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+            var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
             const stdout = &stdout_writer.interface;
             stdout.print("[DRY-RUN] {s}: parse error: {}\n", .{ entry.name, err }) catch {};
             stdout.flush() catch {};
@@ -361,12 +359,12 @@ const ListEntry = struct {
     file: []const u8,
 };
 
-fn handleList(allocator: std.mem.Allocator, path: []const u8, markdown: bool, writer: anytype) !void {
+fn handleList(io: std.Io, allocator: std.mem.Allocator, path: []const u8, markdown: bool, writer: anytype) !void {
     // Check if path is a file (ProjectSpec) or directory
     const is_file = blk: {
-        std.fs.cwd().access(path, .{}) catch break :blk false;
-        var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch break :blk true;
-        dir.close();
+        std.Io.Dir.cwd().access(io, path, .{}) catch break :blk false;
+        var dir = std.Io.Dir.cwd().openDir(io, path, .{ .iterate = true }) catch break :blk true;
+        dir.close(io);
         break :blk false;
     };
 
@@ -404,7 +402,7 @@ fn handleList(allocator: std.mem.Allocator, path: []const u8, markdown: bool, wr
             return;
         }
     } else {
-        try collectDirEntries(allocator, path, &entries);
+        try collectDirEntries(io, allocator, path, &entries);
     }
 
     // Sort by filename
@@ -448,12 +446,12 @@ fn handleList(allocator: std.mem.Allocator, path: []const u8, markdown: bool, wr
     }
 }
 
-fn collectDirEntries(allocator: std.mem.Allocator, dir_path: []const u8, entries: *std.ArrayListUnmanaged(ListEntry)) !void {
-    var dir = try std.fs.cwd().openDir(dir_path, .{ .iterate = true });
-    defer dir.close();
+fn collectDirEntries(io: std.Io, allocator: std.mem.Allocator, dir_path: []const u8, entries: *std.ArrayListUnmanaged(ListEntry)) !void {
+    var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
+    defer dir.close(io);
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
 
