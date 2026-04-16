@@ -1,0 +1,8 @@
+name: list contains
+description: expect_output_contains にリストを渡す
+
+test:
+  command: echo hello world
+  expect_output_contains:
+    - hello
+    - world
