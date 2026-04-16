@@ -1,0 +1,13 @@
+name: vars in steps
+description: vars は steps 内の各コマンドでも展開され��
+
+vars:
+  CMD: echo
+
+steps:
+  - name: step one
+    command: ${CMD} hello
+    expect_output: "hello\n"
+  - name: step two
+    command: ${CMD} world
+    expect_output: "world\n"

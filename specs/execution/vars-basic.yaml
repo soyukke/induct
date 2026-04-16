@@ -1,0 +1,8 @@
+name: vars expands in command
+description: |
+  spec レベルの vars: で定義した変数が command 内の ${VAR} に展開される。
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/vars-basic.yaml
+  expect_output_contains: "[PASS]"
+  expect_output_not_contains: "[FAIL]"
+  expect_exit_code: 0

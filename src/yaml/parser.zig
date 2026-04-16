@@ -822,29 +822,49 @@ pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
     const name = name_val.getString() orelse return ParseError.InvalidYaml;
     const description = if (map.get("description")) |desc_val| desc_val.getString() else null;
 
+    // Parse optional vars for template expansion
+    const vars_map_ptr = blk: {
+        const vars_ptr = map.getPtr("vars") orelse break :blk @as(?*std.StringHashMap(YamlValue), null);
+        break :blk vars_ptr.getMap();
+    };
+
     const setup = try parseSetupCommands(allocator, map);
     const teardown = try parseTeardownCommands(allocator, map);
     const steps = try parseSteps(allocator, map);
 
     // steps and test are mutually exclusive
-    if (steps != null) {
+    if (steps) |steps_list| {
+        if (vars_map_ptr) |vars_map| {
+            for (steps_list) |*step| {
+                const expanded = try expandTemplate(allocator, step.test_case.command, vars_map);
+                allocator.free(@constCast(step).test_case.command);
+                @constCast(step).test_case.command = expanded;
+            }
+        }
         return Spec{
             .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
             .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
             .setup = setup,
-            .steps = steps,
+            .steps = steps_list,
             .teardown = teardown,
         };
     }
 
     // test_table expands to steps
     const table_steps = try parseTestTable(allocator, map);
-    if (table_steps != null) {
+    if (table_steps) |tbl_steps| {
+        if (vars_map_ptr) |vars_map| {
+            for (tbl_steps) |*step| {
+                const expanded = try expandTemplate(allocator, step.test_case.command, vars_map);
+                allocator.free(@constCast(step).test_case.command);
+                @constCast(step).test_case.command = expanded;
+            }
+        }
         return Spec{
             .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
             .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
             .setup = setup,
-            .steps = table_steps,
+            .steps = tbl_steps,
             .teardown = teardown,
         };
     }
@@ -855,7 +875,13 @@ pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
         break :blk tv.getMap() orelse return ParseError.InvalidYaml;
     };
 
-    const test_case = try parseTestCaseFromMap(allocator, test_map);
+    var test_case = try parseTestCaseFromMap(allocator, test_map);
+
+    if (vars_map_ptr) |vars_map| {
+        const expanded = try expandTemplate(allocator, test_case.command, vars_map);
+        allocator.free(test_case.command);
+        test_case.command = expanded;
+    }
 
     return Spec{
         .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,

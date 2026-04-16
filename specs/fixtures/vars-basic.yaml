@@ -1,0 +1,9 @@
+name: vars basic
+description: vars で定義した変数を command 内で参照できる
+
+vars:
+  GREETING: hello
+
+test:
+  command: echo ${GREETING}
+  expect_output: "hello\n"
