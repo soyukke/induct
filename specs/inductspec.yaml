@@ -106,6 +106,10 @@ include:
   - execution/test-table-fuzzy.yaml
   - execution/schema-test-table.yaml
 
+  # Vars
+  - execution/vars-basic.yaml
+  - execution/vars-steps.yaml
+
   # Error handling tests
   - errors/file-not-found.yaml
   - errors/missing-spec-path.yaml
