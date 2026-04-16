@@ -1,0 +1,8 @@
+name: test_table works in inline ProjectSpec specs
+description: |
+  ProjectSpec の specs: 内でも test_table が使える。
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/inline-test-table-project.yaml
+  expect_output_contains: "[PASS]"
+  expect_output_not_contains: "[FAIL]"
+  expect_exit_code: 0

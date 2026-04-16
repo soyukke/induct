@@ -1017,6 +1017,31 @@ fn parseSpecFromYamlValue(allocator: Allocator, yaml_val: YamlValue) ParseError!
     const name = name_val.getString() orelse return ParseError.InvalidYaml;
     const description = if (map.get("description")) |desc_val| desc_val.getString() else null;
 
+    const setup = try parseSetupCommands(allocator, map);
+    const teardown = try parseTeardownCommands(allocator, map);
+    const steps = try parseSteps(allocator, map);
+
+    if (steps != null) {
+        return Spec{
+            .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
+            .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
+            .setup = setup,
+            .steps = steps,
+            .teardown = teardown,
+        };
+    }
+
+    const table_steps = try parseTestTable(allocator, map);
+    if (table_steps != null) {
+        return Spec{
+            .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
+            .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
+            .setup = setup,
+            .steps = table_steps,
+            .teardown = teardown,
+        };
+    }
+
     const test_val = map.get("test_case") orelse map.get("test") orelse return ParseError.MissingRequiredField;
     const test_map = blk: {
         var tv = test_val;
@@ -1024,8 +1049,6 @@ fn parseSpecFromYamlValue(allocator: Allocator, yaml_val: YamlValue) ParseError!
     };
 
     const test_case = try parseTestCaseFromMap(allocator, test_map);
-    const setup = try parseSetupCommands(allocator, map);
-    const teardown = try parseTeardownCommands(allocator, map);
 
     return Spec{
         .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,

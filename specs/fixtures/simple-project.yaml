@@ -1,0 +1,6 @@
+name: simple project spec
+description: Auto-detection test project
+
+include:
+  - ../examples/echo.yaml
+  - ../examples/exit-code.yaml
