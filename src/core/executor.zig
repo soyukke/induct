@@ -862,7 +862,26 @@ pub fn executeProjectSpecFromFileWithOptions(allocator: Allocator, path: []const
 }
 
 pub fn isProjectSpecFile(path: []const u8) bool {
-    return std.mem.endsWith(u8, path, "inductspec.yaml");
+    // Check by filename convention first
+    if (std.mem.endsWith(u8, path, "inductspec.yaml")) return true;
+
+    // Check by content: if file has include: or specs: top-level keys, it's a ProjectSpec
+    const file = std.fs.cwd().openFile(path, .{}) catch return false;
+    defer file.close();
+    const content = file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024) catch return false;
+    defer std.heap.page_allocator.free(content);
+
+    return hasProjectSpecKeys(content);
+}
+
+fn hasProjectSpecKeys(content: []const u8) bool {
+    // Look for top-level include: or specs: keys (not indented)
+    var iter = std.mem.splitScalar(u8, content, '\n');
+    while (iter.next()) |line| {
+        if (std.mem.startsWith(u8, line, "include:")) return true;
+        if (std.mem.startsWith(u8, line, "specs:")) return true;
+    }
+    return false;
 }
 
 test "execute simple spec" {
@@ -952,9 +971,14 @@ test "execute project spec with inline specs" {
     try std.testing.expect(results[1].passed);
 }
 
-test "isProjectSpecFile" {
+test "isProjectSpecFile by name" {
     try std.testing.expect(isProjectSpecFile("inductspec.yaml"));
     try std.testing.expect(isProjectSpecFile("path/to/inductspec.yaml"));
-    try std.testing.expect(!isProjectSpecFile("test.yaml"));
-    try std.testing.expect(!isProjectSpecFile("inductspec.yml"));
+}
+
+test "hasProjectSpecKeys" {
+    try std.testing.expect(hasProjectSpecKeys("name: test\ninclude:\n  - foo.yaml\n"));
+    try std.testing.expect(hasProjectSpecKeys("name: test\nspecs:\n  - name: foo\n"));
+    try std.testing.expect(!hasProjectSpecKeys("name: test\ntest:\n  command: echo\n"));
+    try std.testing.expect(!hasProjectSpecKeys("name: test\n  include: nested\n"));
 }
