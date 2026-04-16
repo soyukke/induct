@@ -1,0 +1,8 @@
+name: list --markdown flattens multiline description
+description: |
+  list --markdown の出力で複数行 description が
+  テーブル行を壊さないことを検証する。
+test:
+  command: ./zig-out/bin/induct list specs/examples/ --markdown
+  expect_output_not_contains: "\n |"
+  expect_exit_code: 0

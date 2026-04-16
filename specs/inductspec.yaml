@@ -117,6 +117,10 @@ include:
 
   # List single spec
   - execution/list-single-spec.yaml
+  - execution/list-markdown-multiline.yaml
+
+  # Inline test_table in ProjectSpec
+  - execution/inline-test-table.yaml
 
   # ProjectSpec auto-detection
   - execution/projectspec-auto-detect.yaml

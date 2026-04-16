@@ -1,0 +1,10 @@
+name: inline test_table project
+specs:
+  - name: inline table spec
+    test_table:
+      command: "echo '${input}'"
+      cases:
+        - input: hello
+          expect_output: "hello\n"
+        - input: world
+          expect_output: "world\n"

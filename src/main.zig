@@ -418,7 +418,18 @@ fn handleList(allocator: std.mem.Allocator, path: []const u8, markdown: bool, wr
         writer.print("| Name | File | Description |\n", .{}) catch {};
         writer.print("|------|------|-------------|\n", .{}) catch {};
         for (entries.items) |e| {
-            writer.print("| {s} | {s} | {s} |\n", .{ e.name, e.file, e.description }) catch {};
+            // Flatten description for markdown: replace newlines with spaces
+            writer.print("| {s} | {s} | ", .{ e.name, e.file }) catch {};
+            if (e.description.len > 0) {
+                for (e.description) |c| {
+                    if (c == '\n') {
+                        writer.print(" ", .{}) catch {};
+                    } else {
+                        writer.print("{c}", .{c}) catch {};
+                    }
+                }
+            }
+            writer.print(" |\n", .{}) catch {};
         }
     } else {
         for (entries.items) |e| {
@@ -481,8 +492,8 @@ fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, ent
             try allocator.dupe(u8, include_path);
         defer allocator.free(full_path);
 
-        // Recurse into nested ProjectSpecs
-        if (induct.core.executor.isProjectSpecFile(include_path)) {
+        // Recurse into nested ProjectSpecs (use full_path for content-based detection)
+        if (induct.core.executor.isProjectSpecFile(full_path)) {
             collectProjectSpecEntries(allocator, full_path, entries) catch continue;
             continue;
         }
