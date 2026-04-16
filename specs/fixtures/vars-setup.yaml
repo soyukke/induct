@@ -1,0 +1,15 @@
+name: vars in setup
+description: vars は setup の run command でも展開される
+
+vars:
+  TMPFILE: /tmp/induct-vars-setup-test.txt
+
+setup:
+  - run: echo "hello" > ${TMPFILE}
+
+test:
+  command: cat ${TMPFILE}
+  expect_output: "hello\n"
+
+teardown:
+  - run: rm -f ${TMPFILE}

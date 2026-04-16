@@ -1,0 +1,8 @@
+name: vars expands in setup commands
+description: |
+  vars: で定義した変数が setup の run: コマンドでも展開される。
+test:
+  command: ./zig-out/bin/induct run specs/fixtures/vars-setup.yaml
+  expect_output_contains: "[PASS]"
+  expect_output_not_contains: "[FAIL]"
+  expect_exit_code: 0
