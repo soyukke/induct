@@ -536,18 +536,39 @@ fn parseEnvVars(allocator: Allocator, test_map: *std.StringHashMap(YamlValue)) P
     return env_vars;
 }
 
+/// Parse a YAML value as either a single string → 1-element slice, or a list of strings → slice.
+fn parseStringOrList(allocator: Allocator, val: YamlValue) ParseError!?[]const []const u8 {
+    // Single string
+    if (val.getString()) |s| {
+        const items = allocator.alloc([]const u8, 1) catch return ParseError.OutOfMemory;
+        items[0] = allocator.dupe(u8, s) catch return ParseError.OutOfMemory;
+        return items;
+    }
+    // List of strings
+    if (val.getList()) |list| {
+        if (list.len == 0) return null;
+        const items = allocator.alloc([]const u8, list.len) catch return ParseError.OutOfMemory;
+        for (list, 0..) |item, i| {
+            const s = item.getString() orelse return ParseError.InvalidYaml;
+            items[i] = allocator.dupe(u8, s) catch return ParseError.OutOfMemory;
+        }
+        return items;
+    }
+    return null;
+}
+
 fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlValue)) ParseError!TestCase {
     const command_val = test_map.get("command") orelse return ParseError.MissingRequiredField;
     const command = command_val.getString() orelse return ParseError.InvalidYaml;
 
     const input = if (test_map.get("input")) |v| v.getString() else null;
     const expect_output = if (test_map.get("expect_output")) |v| v.getString() else null;
-    const expect_output_contains = if (test_map.get("expect_output_contains")) |v| v.getString() else null;
-    const expect_output_not_contains = if (test_map.get("expect_output_not_contains")) |v| v.getString() else null;
+    const expect_output_contains = if (test_map.get("expect_output_contains")) |v| try parseStringOrList(allocator, v) else null;
+    const expect_output_not_contains = if (test_map.get("expect_output_not_contains")) |v| try parseStringOrList(allocator, v) else null;
     const expect_output_regex = if (test_map.get("expect_output_regex")) |v| v.getString() else null;
     const expect_stderr = if (test_map.get("expect_stderr")) |v| v.getString() else null;
-    const expect_stderr_contains = if (test_map.get("expect_stderr_contains")) |v| v.getString() else null;
-    const expect_stderr_not_contains = if (test_map.get("expect_stderr_not_contains")) |v| v.getString() else null;
+    const expect_stderr_contains = if (test_map.get("expect_stderr_contains")) |v| try parseStringOrList(allocator, v) else null;
+    const expect_stderr_not_contains = if (test_map.get("expect_stderr_not_contains")) |v| try parseStringOrList(allocator, v) else null;
     const expect_stderr_regex = if (test_map.get("expect_stderr_regex")) |v| v.getString() else null;
     const expect_exit_code: i32 = if (test_map.get("expect_exit_code")) |v|
         @intCast(v.getInt() orelse 0)
@@ -567,12 +588,12 @@ fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlV
         .command = allocator.dupe(u8, command) catch return ParseError.OutOfMemory,
         .input = if (input) |i| allocator.dupe(u8, i) catch return ParseError.OutOfMemory else null,
         .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_output_contains = if (expect_output_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_output_not_contains = if (expect_output_not_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_output_contains = expect_output_contains,
+        .expect_output_not_contains = expect_output_not_contains,
         .expect_output_regex = if (expect_output_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
         .expect_stderr = if (expect_stderr) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_stderr_contains = if (expect_stderr_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_stderr_not_contains = if (expect_stderr_not_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+        .expect_stderr_contains = expect_stderr_contains,
+        .expect_stderr_not_contains = expect_stderr_not_contains,
         .expect_stderr_regex = if (expect_stderr_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
         .expect_exit_code = expect_exit_code,
         .generate = generate,
@@ -779,12 +800,12 @@ fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) Pars
 
         // Extract assertions from the case
         const expect_output = if (case_map.get("expect_output")) |v| v.getString() else null;
-        const expect_output_contains = if (case_map.get("expect_output_contains")) |v| v.getString() else null;
-        const expect_output_not_contains = if (case_map.get("expect_output_not_contains")) |v| v.getString() else null;
+        const expect_output_contains = if (case_map.get("expect_output_contains")) |v| try parseStringOrList(allocator, v) else null;
+        const expect_output_not_contains = if (case_map.get("expect_output_not_contains")) |v| try parseStringOrList(allocator, v) else null;
         const expect_output_regex = if (case_map.get("expect_output_regex")) |v| v.getString() else null;
         const expect_stderr = if (case_map.get("expect_stderr")) |v| v.getString() else null;
-        const expect_stderr_contains = if (case_map.get("expect_stderr_contains")) |v| v.getString() else null;
-        const expect_stderr_not_contains = if (case_map.get("expect_stderr_not_contains")) |v| v.getString() else null;
+        const expect_stderr_contains = if (case_map.get("expect_stderr_contains")) |v| try parseStringOrList(allocator, v) else null;
+        const expect_stderr_not_contains = if (case_map.get("expect_stderr_not_contains")) |v| try parseStringOrList(allocator, v) else null;
         const expect_stderr_regex = if (case_map.get("expect_stderr_regex")) |v| v.getString() else null;
         const expect_exit_code: i32 = if (case_map.get("expect_exit_code")) |v|
             @intCast(v.getInt() orelse 0)
@@ -796,12 +817,12 @@ fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) Pars
             .test_case = .{
                 .command = expanded_command,
                 .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_output_contains = if (expect_output_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_output_not_contains = if (expect_output_not_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+                .expect_output_contains = expect_output_contains,
+                .expect_output_not_contains = expect_output_not_contains,
                 .expect_output_regex = if (expect_output_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
                 .expect_stderr = if (expect_stderr) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_stderr_contains = if (expect_stderr_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_stderr_not_contains = if (expect_stderr_not_contains) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
+                .expect_stderr_contains = expect_stderr_contains,
+                .expect_stderr_not_contains = expect_stderr_not_contains,
                 .expect_stderr_regex = if (expect_stderr_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
                 .expect_exit_code = expect_exit_code,
             },

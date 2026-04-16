@@ -139,7 +139,7 @@ pub fn validateOutput(
     allocator: Allocator,
     actual: []const u8,
     expect_exact: ?[]const u8,
-    expect_contains: ?[]const u8,
+    expect_contains: ?[]const []const u8,
 ) ValidationResult {
     if (expect_exact) |expected| {
         if (!std.mem.eql(u8, actual, expected)) {
@@ -165,21 +165,23 @@ pub fn validateOutput(
         }
     }
 
-    if (expect_contains) |expected| {
-        if (std.mem.indexOf(u8, actual, expected) == null) {
-            const escaped_expected = escape(allocator, expected) catch return .{ .passed = false, .error_message = "Output missing substring (allocation failed)" };
-            const escaped_actual = escape(allocator, actual) catch {
-                allocator.free(escaped_expected);
-                return .{ .passed = false, .error_message = "Output missing substring (allocation failed)" };
-            };
-            const msg = std.fmt.allocPrint(allocator, "Output missing expected substring\n  Expected to contain: \"{s}\"\n  Actual: \"{s}\"", .{ escaped_expected, escaped_actual }) catch {
+    if (expect_contains) |items| {
+        for (items) |expected| {
+            if (std.mem.indexOf(u8, actual, expected) == null) {
+                const escaped_expected = escape(allocator, expected) catch return .{ .passed = false, .error_message = "Output missing substring (allocation failed)" };
+                const escaped_actual = escape(allocator, actual) catch {
+                    allocator.free(escaped_expected);
+                    return .{ .passed = false, .error_message = "Output missing substring (allocation failed)" };
+                };
+                const msg = std.fmt.allocPrint(allocator, "Output missing expected substring\n  Expected to contain: \"{s}\"\n  Actual: \"{s}\"", .{ escaped_expected, escaped_actual }) catch {
+                    allocator.free(escaped_expected);
+                    allocator.free(escaped_actual);
+                    return .{ .passed = false, .error_message = "Output missing substring (allocation failed)" };
+                };
                 allocator.free(escaped_expected);
                 allocator.free(escaped_actual);
-                return .{ .passed = false, .error_message = "Output missing substring (allocation failed)" };
-            };
-            allocator.free(escaped_expected);
-            allocator.free(escaped_actual);
-            return .{ .passed = false, .error_message = msg, .allocated = true };
+                return .{ .passed = false, .error_message = msg, .allocated = true };
+            }
         }
     }
 
@@ -189,14 +191,16 @@ pub fn validateOutput(
 fn validateNotContains(
     allocator: Allocator,
     actual: []const u8,
-    not_contains: ?[]const u8,
+    not_contains: ?[]const []const u8,
     label: []const u8,
 ) ValidationResult {
-    if (not_contains) |unexpected| {
-        if (std.mem.indexOf(u8, actual, unexpected) != null) {
-            const msg = std.fmt.allocPrint(allocator, "{s} contains unwanted substring\n  Should not contain: \"{s}\"", .{ label, truncate(unexpected) }) catch
-                return .{ .passed = false, .error_message = "contains unwanted substring" };
-            return .{ .passed = false, .error_message = msg, .allocated = true };
+    if (not_contains) |items| {
+        for (items) |unexpected| {
+            if (std.mem.indexOf(u8, actual, unexpected) != null) {
+                const msg = std.fmt.allocPrint(allocator, "{s} contains unwanted substring\n  Should not contain: \"{s}\"", .{ label, truncate(unexpected) }) catch
+                    return .{ .passed = false, .error_message = "contains unwanted substring" };
+                return .{ .passed = false, .error_message = msg, .allocated = true };
+            }
         }
     }
     return .{ .passed = true, .error_message = null };
@@ -205,7 +209,7 @@ fn validateNotContains(
 pub fn validateOutputNotContains(
     allocator: Allocator,
     actual: []const u8,
-    not_contains: ?[]const u8,
+    not_contains: ?[]const []const u8,
 ) ValidationResult {
     return validateNotContains(allocator, actual, not_contains, "Output");
 }
@@ -213,7 +217,7 @@ pub fn validateOutputNotContains(
 pub fn validateStderrNotContains(
     allocator: Allocator,
     actual_stderr: []const u8,
-    not_contains: ?[]const u8,
+    not_contains: ?[]const []const u8,
 ) ValidationResult {
     return validateNotContains(allocator, actual_stderr, not_contains, "Stderr");
 }
@@ -222,7 +226,7 @@ pub fn validateStderr(
     allocator: Allocator,
     actual_stderr: []const u8,
     expect_stderr: ?[]const u8,
-    expect_stderr_contains: ?[]const u8,
+    expect_stderr_contains: ?[]const []const u8,
 ) ValidationResult {
     if (expect_stderr) |expected| {
         if (!std.mem.eql(u8, actual_stderr, expected)) {
@@ -247,15 +251,17 @@ pub fn validateStderr(
             return .{ .passed = false, .error_message = msg, .allocated = true };
         }
     }
-    if (expect_stderr_contains) |expected| {
-        if (std.mem.indexOf(u8, actual_stderr, expected) == null) {
-            const escaped_actual = escape(allocator, actual_stderr) catch return .{ .passed = false, .error_message = "Stderr missing substring (allocation failed)" };
-            const msg = std.fmt.allocPrint(allocator, "Stderr missing expected substring\n  Expected to contain: \"{s}\"\n  Actual: \"{s}\"", .{ truncate(expected), escaped_actual }) catch {
+    if (expect_stderr_contains) |items| {
+        for (items) |expected| {
+            if (std.mem.indexOf(u8, actual_stderr, expected) == null) {
+                const escaped_actual = escape(allocator, actual_stderr) catch return .{ .passed = false, .error_message = "Stderr missing substring (allocation failed)" };
+                const msg = std.fmt.allocPrint(allocator, "Stderr missing expected substring\n  Expected to contain: \"{s}\"\n  Actual: \"{s}\"", .{ truncate(expected), escaped_actual }) catch {
+                    allocator.free(escaped_actual);
+                    return .{ .passed = false, .error_message = "Stderr missing substring (allocation failed)" };
+                };
                 allocator.free(escaped_actual);
-                return .{ .passed = false, .error_message = "Stderr missing substring (allocation failed)" };
-            };
-            allocator.free(escaped_actual);
-            return .{ .passed = false, .error_message = msg, .allocated = true };
+                return .{ .passed = false, .error_message = msg, .allocated = true };
+            }
         }
     }
     return .{ .passed = true, .error_message = null };
@@ -310,22 +316,22 @@ test "validate exact output mismatch" {
 }
 
 test "validate contains match" {
-    const result = validateOutput(std.testing.allocator, "hello world\n", null, "world");
+    const result = validateOutput(std.testing.allocator, "hello world\n", null, &.{"world"});
     try std.testing.expect(result.passed);
 }
 
 test "validate contains mismatch" {
-    const result = validateOutput(std.testing.allocator, "hello world\n", null, "foo");
+    const result = validateOutput(std.testing.allocator, "hello world\n", null, &.{"foo"});
     defer if (result.allocated) std.testing.allocator.free(result.error_message.?);
     try std.testing.expect(!result.passed);
     try std.testing.expect(std.mem.indexOf(u8, result.error_message.?, "Expected to contain:") != null);
 }
 
 test "validate not contains" {
-    const r1 = validateOutputNotContains(std.testing.allocator, "hello world", "foo");
+    const r1 = validateOutputNotContains(std.testing.allocator, "hello world", &.{"foo"});
     try std.testing.expect(r1.passed);
 
-    const r2 = validateOutputNotContains(std.testing.allocator, "hello world", "world");
+    const r2 = validateOutputNotContains(std.testing.allocator, "hello world", &.{"world"});
     defer if (r2.allocated) std.testing.allocator.free(r2.error_message.?);
     try std.testing.expect(!r2.passed);
     try std.testing.expect(std.mem.indexOf(u8, r2.error_message.?, "Should not contain:") != null);
@@ -339,10 +345,10 @@ test "validate stderr" {
     defer if (r2.allocated) std.testing.allocator.free(r2.error_message.?);
     try std.testing.expect(!r2.passed);
 
-    const r3 = validateStderr(std.testing.allocator, "error msg", null, "error");
+    const r3 = validateStderr(std.testing.allocator, "error msg", null, &.{"error"});
     try std.testing.expect(r3.passed);
 
-    const r4 = validateStderr(std.testing.allocator, "error msg", null, "warning");
+    const r4 = validateStderr(std.testing.allocator, "error msg", null, &.{"warning"});
     defer if (r4.allocated) std.testing.allocator.free(r4.error_message.?);
     try std.testing.expect(!r4.passed);
 }
@@ -362,10 +368,10 @@ test "validate exit code" {
 }
 
 test "validate stderr not contains" {
-    const r1 = validateStderrNotContains(std.testing.allocator, "warning: minor", "FATAL");
+    const r1 = validateStderrNotContains(std.testing.allocator, "warning: minor", &.{"FATAL"});
     try std.testing.expect(r1.passed);
 
-    const r2 = validateStderrNotContains(std.testing.allocator, "FATAL error", "FATAL");
+    const r2 = validateStderrNotContains(std.testing.allocator, "FATAL error", &.{"FATAL"});
     defer if (r2.allocated) std.testing.allocator.free(r2.error_message.?);
     try std.testing.expect(!r2.passed);
     try std.testing.expect(std.mem.indexOf(u8, r2.error_message.?, "Should not contain:") != null);
@@ -383,14 +389,14 @@ test "validateTestCase" {
     defer if (r3.allocated) std.testing.allocator.free(r3.error_message.?);
     try std.testing.expect(!r3.passed);
 
-    const r4 = validateTestCase(std.testing.allocator, "hello\n", "", 0, .{ .command = "x", .expect_output_not_contains = "hello" });
+    const r4 = validateTestCase(std.testing.allocator, "hello\n", "", 0, .{ .command = "x", .expect_output_not_contains = &.{"hello"} });
     defer if (r4.allocated) std.testing.allocator.free(r4.error_message.?);
     try std.testing.expect(!r4.passed);
 
-    const r5 = validateTestCase(std.testing.allocator, "", "warning only", 0, .{ .command = "x", .expect_stderr_not_contains = "FATAL" });
+    const r5 = validateTestCase(std.testing.allocator, "", "warning only", 0, .{ .command = "x", .expect_stderr_not_contains = &.{"FATAL"} });
     try std.testing.expect(r5.passed);
 
-    const r6 = validateTestCase(std.testing.allocator, "", "FATAL crash", 0, .{ .command = "x", .expect_stderr_not_contains = "FATAL" });
+    const r6 = validateTestCase(std.testing.allocator, "", "FATAL crash", 0, .{ .command = "x", .expect_stderr_not_contains = &.{"FATAL"} });
     defer if (r6.allocated) std.testing.allocator.free(r6.error_message.?);
     try std.testing.expect(!r6.passed);
 }

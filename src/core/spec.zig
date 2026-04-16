@@ -55,12 +55,12 @@ pub const TestCase = struct {
     command: []const u8 = "",
     input: ?[]const u8 = null,
     expect_output: ?[]const u8 = null,
-    expect_output_contains: ?[]const u8 = null,
-    expect_output_not_contains: ?[]const u8 = null,
+    expect_output_contains: ?[]const []const u8 = null,
+    expect_output_not_contains: ?[]const []const u8 = null,
     expect_output_regex: ?[]const u8 = null,
     expect_stderr: ?[]const u8 = null,
-    expect_stderr_contains: ?[]const u8 = null,
-    expect_stderr_not_contains: ?[]const u8 = null,
+    expect_stderr_contains: ?[]const []const u8 = null,
+    expect_stderr_not_contains: ?[]const []const u8 = null,
     expect_stderr_regex: ?[]const u8 = null,
     expect_exit_code: i32 = 0,
     generate: bool = false,
@@ -73,12 +73,24 @@ pub const TestCase = struct {
         allocator.free(self.command);
         if (self.input) |inp| allocator.free(inp);
         if (self.expect_output) |out| allocator.free(out);
-        if (self.expect_output_contains) |out| allocator.free(out);
-        if (self.expect_output_not_contains) |out| allocator.free(out);
+        if (self.expect_output_contains) |items| {
+            for (items) |s| allocator.free(s);
+            allocator.free(items);
+        }
+        if (self.expect_output_not_contains) |items| {
+            for (items) |s| allocator.free(s);
+            allocator.free(items);
+        }
         if (self.expect_output_regex) |out| allocator.free(out);
         if (self.expect_stderr) |out| allocator.free(out);
-        if (self.expect_stderr_contains) |out| allocator.free(out);
-        if (self.expect_stderr_not_contains) |out| allocator.free(out);
+        if (self.expect_stderr_contains) |items| {
+            for (items) |s| allocator.free(s);
+            allocator.free(items);
+        }
+        if (self.expect_stderr_not_contains) |items| {
+            for (items) |s| allocator.free(s);
+            allocator.free(items);
+        }
         if (self.expect_stderr_regex) |out| allocator.free(out);
         if (self.target_path) |path| allocator.free(path);
         if (self.env) |env_vars| {

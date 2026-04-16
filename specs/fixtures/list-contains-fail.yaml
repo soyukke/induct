@@ -1,0 +1,8 @@
+name: list contains should fail
+description: expect_output_contains のリスト内に一致しない文字列がある
+
+test:
+  command: echo hello world
+  expect_output_contains:
+    - hello
+    - NOTFOUND

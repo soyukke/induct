@@ -112,6 +112,9 @@ include:
   - execution/vars-setup.yaml
   - execution/schema-vars.yaml
 
+  # List contains
+  - execution/list-contains.yaml
+
   # ProjectSpec auto-detection
   - execution/projectspec-auto-detect.yaml
 

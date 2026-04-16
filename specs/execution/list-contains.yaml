@@ -1,0 +1,14 @@
+name: expect_output_contains accepts list
+description: |
+  expect_output_contains にリストを渡すと、全ての文字列が含まれることを検証する。
+
+steps:
+  - name: all match passes
+    command: ./zig-out/bin/induct run specs/fixtures/list-contains.yaml
+    expect_output_contains: "[PASS]"
+    expect_exit_code: 0
+
+  - name: partial match fails
+    command: ./zig-out/bin/induct run specs/fixtures/list-contains-fail.yaml
+    expect_output_contains: "[FAIL]"
+    expect_exit_code: 1
