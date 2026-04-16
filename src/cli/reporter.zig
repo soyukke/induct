@@ -10,7 +10,8 @@ pub const OutputFormat = enum {
 };
 
 pub const Reporter = struct {
-    stdout: std.fs.File,
+    stdout: std.Io.File,
+    io: std.Io,
     verbose: bool,
     format: OutputFormat,
     use_color: bool,
@@ -18,22 +19,23 @@ pub const Reporter = struct {
 
     const Self = @This();
 
-    pub fn init(verbose: bool, json_output: bool) Self {
-        return initWithFormat(verbose, if (json_output) .json else .text);
+    pub fn init(io: std.Io, verbose: bool, json_output: bool) Self {
+        return initWithFormat(io, verbose, if (json_output) .json else .text);
     }
 
-    pub fn initWithFormat(verbose: bool, format: OutputFormat) Self {
-        const stdout = std.fs.File.stdout();
+    pub fn initWithFormat(io: std.Io, verbose: bool, format: OutputFormat) Self {
+        const stdout = std.Io.File.stdout();
         return .{
             .stdout = stdout,
+            .io = io,
             .verbose = verbose,
             .format = format,
-            .use_color = stdout.supportsAnsiEscapeCodes(),
+            .use_color = stdout.supportsAnsiEscapeCodes(io) catch false,
         };
     }
 
-    fn getWriter(self: *Self) std.fs.File.Writer {
-        return self.stdout.writer(&self.buffer);
+    fn getWriter(self: *Self) std.Io.File.Writer {
+        return self.stdout.writer(self.io, &self.buffer);
     }
 
     pub fn reportResult(self: *Self, result: SpecResult) void {
@@ -313,6 +315,12 @@ pub fn printSchema(writer: anytype) void {
         \\test:                                   # Required: test definition
         \\  command: ${{BIN}} hello                  # Required: command to execute
         \\  input: "stdin data"                    # Optional: stdin input
+        \\  input_lines:                           # Optional: stdin as lines (exclusive with input)
+        \\    line_ending: lf                      #   "lf" (default) or "crlf"
+        \\    trailing: true                       #   append line_ending to last line (default: true)
+        \\    lines:                               #   list of lines
+        \\      - 'line 1'
+        \\      - 'line 2'
         \\  expect_output: "hello\n"               # Optional: exact stdout match
         \\  expect_output_contains: "llo"          # Optional: stdout substring match
         \\  expect_output_not_contains: "err"      # Optional: stdout negative match
@@ -459,14 +467,14 @@ pub fn printSchema(writer: anytype) void {
     , .{}) catch {};
 }
 
-pub const version = std.mem.trimRight(u8, @embedFile("../VERSION"), &.{ '\n', '\r', ' ' });
+pub const version = std.mem.trimEnd(u8, @embedFile("../VERSION"), &.{ '\n', '\r', ' ' });
 
 pub fn printVersion(writer: anytype) void {
     writer.print("induct v{s}\n", .{version}) catch {};
 }
 
 test "Reporter initialization" {
-    const reporter = Reporter.init(false, false);
+    const reporter = Reporter.init(std.testing.io, false, false);
     try std.testing.expect(!reporter.verbose);
     try std.testing.expect(reporter.format == .text);
 }

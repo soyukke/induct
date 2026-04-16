@@ -26,7 +26,7 @@ npx @soyukke/induct help
 ```bash
 git clone https://github.com/soyukke/induct.git
 cd induct
-zig build          # Zig 0.15.0+ が必要
+zig build          # Zig 0.16.0+ が必要
 ```
 
 ## Quick Start

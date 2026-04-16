@@ -73,24 +73,29 @@ fn decode(input: []const u8, writer: anytype) !void {
     }
 }
 
-pub fn main() !void {
-    const args = try std.process.argsAlloc(std.heap.page_allocator);
-    defer std.process.argsFree(std.heap.page_allocator, args);
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+    const raw_args = try init.minimal.args.toSlice(init.arena.allocator());
+    const args: []const []const u8 = @ptrCast(raw_args);
 
     if (args.len < 2) {
         var buf: [256]u8 = undefined;
-        var writer = std.fs.File.stderr().writer(&buf);
+        var writer = std.Io.File.stderr().writer(io, &buf);
         writer.interface.writeAll("Usage: base64 <encode|decode>\n") catch {};
         writer.interface.flush() catch {};
         std.process.exit(1);
     }
 
-    const stdin = std.fs.File.stdin();
-    const input = try stdin.readToEndAlloc(std.heap.page_allocator, 10 * 1024 * 1024);
-    defer std.heap.page_allocator.free(input);
+    var stdin_reader = std.Io.File.stdin().reader(io, &.{});
+    const input = stdin_reader.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024)) catch |err| switch (err) {
+        error.ReadFailed => return stdin_reader.err.?,
+        error.OutOfMemory, error.StreamTooLong => |e| return e,
+    };
+    defer allocator.free(input);
 
     var stdout_buf: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buf);
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buf);
     const stdout = &stdout_writer.interface;
 
     if (std.mem.eql(u8, args[1], "encode")) {
@@ -101,7 +106,7 @@ pub fn main() !void {
     } else if (std.mem.eql(u8, args[1], "decode")) {
         decode(input, stdout) catch |err| {
             var stderr_buf: [256]u8 = undefined;
-            var stderr_writer = std.fs.File.stderr().writer(&stderr_buf);
+            var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buf);
             const stderr = &stderr_writer.interface;
             switch (err) {
                 error.InvalidCharacter => stderr.writeAll("error: invalid base64 character\n") catch {},
@@ -115,7 +120,7 @@ pub fn main() !void {
         stdout.flush() catch {};
     } else {
         var buf: [256]u8 = undefined;
-        var writer = std.fs.File.stderr().writer(&buf);
+        var writer = std.Io.File.stderr().writer(io, &buf);
         writer.interface.writeAll("Usage: base64 <encode|decode>\n") catch {};
         writer.interface.flush() catch {};
         std.process.exit(1);

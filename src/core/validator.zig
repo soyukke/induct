@@ -3,6 +3,12 @@ const Allocator = std.mem.Allocator;
 const spec_mod = @import("spec.zig");
 const TestCase = spec_mod.TestCase;
 
+fn appendFmt(list: *std.ArrayListUnmanaged(u8), allocator: Allocator, comptime fmt: []const u8, args: anytype) !void {
+    var writer = std.Io.Writer.Allocating.fromArrayListAligned(allocator, .of(u8), list);
+    defer list.* = writer.toArrayListAligned(.of(u8));
+    try writer.writer.print(fmt, args);
+}
+
 pub const ValidationResult = struct {
     passed: bool,
     error_message: ?[]const u8,
@@ -117,17 +123,17 @@ fn generateDiffWithHeader(allocator: Allocator, expected: []const u8, actual: []
 
         if (i < exp_lines.items.len and i < act_lines.items.len) {
             if (std.mem.eql(u8, exp_lines.items[i], act_lines.items[i])) {
-                try std.fmt.format(out.writer(allocator), "  {d: >3}   {s}\n", .{ line_num, exp_lines.items[i] });
+                try appendFmt(&out, allocator, "  {d: >3}   {s}\n", .{ line_num, exp_lines.items[i] });
             } else {
-                try std.fmt.format(out.writer(allocator), "  {d: >3} - {s}\n", .{ line_num, exp_lines.items[i] });
-                try std.fmt.format(out.writer(allocator), "      + {s}\n", .{act_lines.items[i]});
+                try appendFmt(&out, allocator, "  {d: >3} - {s}\n", .{ line_num, exp_lines.items[i] });
+                try appendFmt(&out, allocator, "      + {s}\n", .{act_lines.items[i]});
                 diff_count += 1;
             }
         } else if (i < exp_lines.items.len) {
-            try std.fmt.format(out.writer(allocator), "  {d: >3} - {s}\n", .{ line_num, exp_lines.items[i] });
+            try appendFmt(&out, allocator, "  {d: >3} - {s}\n", .{ line_num, exp_lines.items[i] });
             diff_count += 1;
         } else if (i < act_lines.items.len) {
-            try std.fmt.format(out.writer(allocator), "  {d: >3} + {s}\n", .{ line_num, act_lines.items[i] });
+            try appendFmt(&out, allocator, "  {d: >3} + {s}\n", .{ line_num, act_lines.items[i] });
             diff_count += 1;
         }
     }

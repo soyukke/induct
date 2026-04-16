@@ -51,9 +51,59 @@ pub const EnvVar = struct {
     }
 };
 
+pub const LineEnding = enum {
+    lf,
+    crlf,
+
+    pub fn bytes(self: LineEnding) []const u8 {
+        return switch (self) {
+            .lf => "\n",
+            .crlf => "\r\n",
+        };
+    }
+};
+
+pub const InputLines = struct {
+    line_ending: LineEnding = .lf,
+    trailing: bool = true,
+    lines: []const []const u8 = &.{},
+
+    pub fn deinit(self: InputLines, allocator: Allocator) void {
+        for (self.lines) |line| allocator.free(line);
+        if (self.lines.len > 0) allocator.free(self.lines);
+    }
+
+    /// Convert to a single byte slice suitable for stdin
+    pub fn toBytes(self: InputLines, allocator: Allocator) ![]const u8 {
+        if (self.lines.len == 0) return try allocator.dupe(u8, "");
+
+        var total_len: usize = 0;
+        const ending = self.line_ending.bytes();
+        for (self.lines) |line| {
+            total_len += line.len;
+        }
+        // Add line endings: all lines if trailing, all but last if not
+        const endings_count = if (self.trailing) self.lines.len else self.lines.len -| 1;
+        total_len += endings_count * ending.len;
+
+        var result = try allocator.alloc(u8, total_len);
+        var offset: usize = 0;
+        for (self.lines, 0..) |line, i| {
+            @memcpy(result[offset .. offset + line.len], line);
+            offset += line.len;
+            if (i < self.lines.len - 1 or self.trailing) {
+                @memcpy(result[offset .. offset + ending.len], ending);
+                offset += ending.len;
+            }
+        }
+        return result;
+    }
+};
+
 pub const TestCase = struct {
     command: []const u8 = "",
     input: ?[]const u8 = null,
+    input_lines: ?InputLines = null,
     expect_output: ?[]const u8 = null,
     expect_output_contains: ?[]const []const u8 = null,
     expect_output_not_contains: ?[]const []const u8 = null,
@@ -72,6 +122,7 @@ pub const TestCase = struct {
     pub fn deinit(self: *TestCase, allocator: Allocator) void {
         allocator.free(self.command);
         if (self.input) |inp| allocator.free(inp);
+        if (self.input_lines) |il| il.deinit(allocator);
         if (self.expect_output) |out| allocator.free(out);
         if (self.expect_output_contains) |items| {
             for (items) |s| allocator.free(s);

@@ -2,5 +2,6 @@
     .name = .uri,
     .version = "0.1.0",
     .fingerprint = 0x841cb1217528d1f6,
+    .minimum_zig_version = "0.16.0",
     .paths = .{""},
 }

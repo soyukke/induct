@@ -26,8 +26,7 @@ var result_counter = std.atomic.Value(u64).init(0);
 
 fn generateId(allocator: Allocator) ![]const u8 {
     const count = result_counter.fetchAdd(1, .monotonic) + 1;
-    const timestamp = @as(u64, @intCast(std.time.milliTimestamp()));
-    return std.fmt.allocPrint(allocator, "{d}-{d}", .{ timestamp, count });
+    return std.fmt.allocPrint(allocator, "{d}", .{count});
 }
 
 /// Append a shell single-quoted-escaped version of input to the list
@@ -84,7 +83,10 @@ fn matchRegex(allocator: Allocator, text: []const u8, pattern: []const u8) !bool
 }
 
 pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !SpecResult {
-    const start_time = std.time.milliTimestamp();
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const start_time = std.Io.Clock.awake.now(io);
     var setup_failed = false;
     var error_message: ?[]const u8 = null;
 
@@ -101,7 +103,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
         if (target_path) |tp| {
             // Check if file exists
             const file_exists = blk: {
-                std.fs.cwd().access(tp, .{}) catch |err| {
+                std.Io.Dir.cwd().access(io, tp, .{}) catch |err| {
                     if (err == error.FileNotFound) {
                         break :blk false;
                     }
@@ -111,7 +113,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
             };
 
             if (!file_exists) {
-                const end_time = std.time.milliTimestamp();
+                const end_time = std.Io.Clock.awake.now(io);
                 const framework_hint = path_extractor.detectFramework(spec.test_case.command);
                 return SpecResult{
                     .id = try generateId(allocator),
@@ -122,7 +124,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
                     .actual_stderr = try allocator.dupe(u8, ""),
                     .actual_exit_code = -1,
                     .error_message = try allocator.dupe(u8, "Test file not found. Generation required."),
-                    .duration_ms = @intCast(end_time - start_time),
+                    .duration_ms = @intCast(start_time.durationTo(end_time).toMilliseconds()),
                     .generate_info = .{
                         .target_path = tp,
                         .description = if (spec.description) |d| try allocator.dupe(u8, d) else null,
@@ -172,14 +174,23 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
         defer if (full_cmd_owned) |fc| allocator.free(fc);
         const full_cmd = full_cmd_owned orelse spec.test_case.command;
 
+        // Resolve stdin data: input_lines takes priority conversion, then input
+        const resolved_input = if (spec.test_case.input_lines) |il|
+            il.toBytes(allocator) catch null
+        else
+            null;
+        defer if (resolved_input) |ri| allocator.free(ri);
+
+        const stdin_data = resolved_input orelse spec.test_case.input;
+
         // Run the test command
         var proc_result = runner.runCommand(
             allocator,
             full_cmd,
-            spec.test_case.input,
+            stdin_data,
             effective_timeout,
         ) catch |err| {
-            const end_time = std.time.milliTimestamp();
+            const end_time = std.Io.Clock.awake.now(io);
             return SpecResult{
                 .id = try generateId(allocator),
                 .spec_name = try allocator.dupe(u8, spec.name),
@@ -188,7 +199,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
                 .actual_stderr = try allocator.dupe(u8, ""),
                 .actual_exit_code = -1,
                 .error_message = try std.fmt.allocPrint(allocator, "Failed to run command: {}", .{err}),
-                .duration_ms = @intCast(end_time - start_time),
+                .duration_ms = @intCast(start_time.durationTo(end_time).toMilliseconds()),
             };
         };
         defer proc_result.deinit(allocator);
@@ -277,7 +288,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
         }
     }
 
-    const end_time = std.time.milliTimestamp();
+    const end_time = std.Io.Clock.awake.now(io);
 
     return SpecResult{
         .id = try generateId(allocator),
@@ -287,7 +298,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
         .actual_stderr = actual_stderr,
         .actual_exit_code = actual_exit_code,
         .error_message = error_message,
-        .duration_ms = @intCast(end_time - start_time),
+        .duration_ms = @intCast(start_time.durationTo(end_time).toMilliseconds()),
         .timed_out = timed_out,
     };
 }
@@ -449,6 +460,10 @@ pub fn executeSpecsFromDir(allocator: Allocator, dir_path: []const u8) ![]SpecRe
 }
 
 pub fn executeSpecsFromDirWithOptions(allocator: Allocator, dir_path: []const u8, options: ExecuteOptions) ![]SpecResult {
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     // Collect spec file paths
     var paths: std.ArrayListUnmanaged([]const u8) = .empty;
     defer {
@@ -456,7 +471,7 @@ pub fn executeSpecsFromDirWithOptions(allocator: Allocator, dir_path: []const u8
         paths.deinit(allocator);
     }
 
-    var dir = std.fs.cwd().openDir(dir_path, .{ .iterate = true }) catch |err| {
+    var dir = std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true }) catch |err| {
         var results: std.ArrayListUnmanaged(SpecResult) = .empty;
         const result = SpecResult{
             .id = try generateId(allocator),
@@ -471,10 +486,10 @@ pub fn executeSpecsFromDirWithOptions(allocator: Allocator, dir_path: []const u8
         try results.append(allocator, result);
         return try results.toOwnedSlice(allocator);
     };
-    defer dir.close();
+    defer dir.close(io);
 
     var iter = dir.iterate();
-    while (try iter.next()) |entry| {
+    while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
 
@@ -862,13 +877,15 @@ pub fn executeProjectSpecFromFileWithOptions(allocator: Allocator, path: []const
 }
 
 pub fn isProjectSpecFile(path: []const u8) bool {
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     // Check by filename convention first
     if (std.mem.endsWith(u8, path, "inductspec.yaml")) return true;
 
     // Check by content: if file has include: or specs: top-level keys, it's a ProjectSpec
-    const file = std.fs.cwd().openFile(path, .{}) catch return false;
-    defer file.close();
-    const content = file.readToEndAlloc(std.heap.page_allocator, 1024 * 1024) catch return false;
+    const content = std.Io.Dir.cwd().readFileAlloc(io, path, std.heap.page_allocator, .limited(1024 * 1024)) catch return false;
     defer std.heap.page_allocator.free(content);
 
     return hasProjectSpecKeys(content);

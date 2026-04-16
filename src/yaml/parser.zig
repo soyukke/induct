@@ -560,11 +560,74 @@ fn parseStringOrList(allocator: Allocator, val: YamlValue) ParseError!?[]const [
     return null;
 }
 
+fn parseInputLines(allocator: Allocator, val: YamlValue) ParseError!?spec_mod.InputLines {
+    // Short form: input_lines is a list directly
+    if (val.getList()) |list| {
+        var lines = allocator.alloc([]const u8, list.len) catch return ParseError.OutOfMemory;
+        for (list, 0..) |item, i| {
+            const s = item.getString() orelse return ParseError.InvalidYaml;
+            lines[i] = allocator.dupe(u8, s) catch return ParseError.OutOfMemory;
+        }
+        return spec_mod.InputLines{
+            .line_ending = .lf,
+            .trailing = true,
+            .lines = lines,
+        };
+    }
+
+    // Map form: input_lines has line_ending, trailing, lines
+    var val_copy = val;
+    var map = val_copy.getMap() orelse return ParseError.InvalidYaml;
+
+    // Parse line_ending
+    var line_ending: spec_mod.LineEnding = .lf;
+    if (map.get("line_ending")) |le_val| {
+        const le_str = le_val.getString() orelse return ParseError.InvalidYaml;
+        if (std.mem.eql(u8, le_str, "lf")) {
+            line_ending = .lf;
+        } else if (std.mem.eql(u8, le_str, "crlf")) {
+            line_ending = .crlf;
+        } else {
+            return ParseError.InvalidYaml;
+        }
+    }
+
+    // Parse trailing
+    var trailing: bool = true;
+    if (map.get("trailing")) |t_val| {
+        trailing = t_val.getBool() orelse return ParseError.InvalidYaml;
+    }
+
+    // Parse lines
+    const lines_val = map.get("lines") orelse return ParseError.InvalidYaml;
+    const lines_list = lines_val.getList() orelse return ParseError.InvalidYaml;
+
+    var lines = allocator.alloc([]const u8, lines_list.len) catch return ParseError.OutOfMemory;
+    for (lines_list, 0..) |item, i| {
+        const s = item.getString() orelse return ParseError.InvalidYaml;
+        lines[i] = allocator.dupe(u8, s) catch return ParseError.OutOfMemory;
+    }
+
+    return spec_mod.InputLines{
+        .line_ending = line_ending,
+        .trailing = trailing,
+        .lines = lines,
+    };
+}
+
 fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlValue)) ParseError!TestCase {
     const command_val = test_map.get("command") orelse return ParseError.MissingRequiredField;
     const command = command_val.getString() orelse return ParseError.InvalidYaml;
 
     const input = if (test_map.get("input")) |v| v.getString() else null;
+    const input_lines_val = if (test_map.get("input_lines")) |v| try parseInputLines(allocator, v) else null;
+
+    // Exclusive check: input and input_lines cannot coexist
+    if (input != null and input_lines_val != null) {
+        if (input_lines_val) |il| il.deinit(allocator);
+        return ParseError.InvalidYaml;
+    }
+
     const expect_output = if (test_map.get("expect_output")) |v| v.getString() else null;
     const expect_output_contains = if (test_map.get("expect_output_contains")) |v| try parseStringOrList(allocator, v) else null;
     const expect_output_not_contains = if (test_map.get("expect_output_not_contains")) |v| try parseStringOrList(allocator, v) else null;
@@ -590,6 +653,7 @@ fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlV
     return TestCase{
         .command = allocator.dupe(u8, command) catch return ParseError.OutOfMemory,
         .input = if (input) |i| allocator.dupe(u8, i) catch return ParseError.OutOfMemory else null,
+        .input_lines = input_lines_val,
         .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
         .expect_output_contains = expect_output_contains,
         .expect_output_not_contains = expect_output_not_contains,
@@ -695,6 +759,8 @@ fn parseSteps(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseErr
 /// Known assertion/meta keys in test_table cases (not template variables)
 const test_table_reserved_keys = [_][]const u8{
     "name",
+    "input",
+    "input_lines",
     "expect_output",
     "expect_output_contains",
     "expect_output_not_contains",
@@ -801,6 +867,16 @@ fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) Pars
         // Expand command template
         const expanded_command = try expandTemplate(allocator, command_template, case_map);
 
+        // Extract input and input_lines from the case
+        const case_input = if (case_map.get("input")) |v| v.getString() else null;
+        const case_input_lines = if (case_map.get("input_lines")) |v| try parseInputLines(allocator, v) else null;
+
+        // Exclusive check
+        if (case_input != null and case_input_lines != null) {
+            if (case_input_lines) |il| il.deinit(allocator);
+            return ParseError.InvalidYaml;
+        }
+
         // Extract assertions from the case
         const expect_output = if (case_map.get("expect_output")) |v| v.getString() else null;
         const expect_output_contains = if (case_map.get("expect_output_contains")) |v| try parseStringOrList(allocator, v) else null;
@@ -819,6 +895,8 @@ fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) Pars
             .name = step_name,
             .test_case = .{
                 .command = expanded_command,
+                .input = if (case_input) |i| allocator.dupe(u8, i) catch return ParseError.OutOfMemory else null,
+                .input_lines = case_input_lines,
                 .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
                 .expect_output_contains = expect_output_contains,
                 .expect_output_not_contains = expect_output_not_contains,
@@ -940,10 +1018,11 @@ pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
 }
 
 pub fn parseSpecFromFile(allocator: Allocator, path: []const u8) !Spec {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    const content = try file.readToEndAlloc(allocator, 1024 * 1024);
+    const content = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024));
     defer allocator.free(content);
 
     return parseSpec(allocator, content);
@@ -1063,10 +1142,11 @@ fn parseSpecFromYamlValue(allocator: Allocator, yaml_val: YamlValue) ParseError!
 }
 
 pub fn parseProjectSpecFromFile(allocator: Allocator, path: []const u8) !ProjectSpec {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    const content = try file.readToEndAlloc(allocator, 1024 * 1024);
+    const content = try std.Io.Dir.cwd().readFileAlloc(io, path, allocator, .limited(1024 * 1024));
     defer allocator.free(content);
 
     return parseProjectSpec(allocator, content);
