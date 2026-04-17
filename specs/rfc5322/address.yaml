@@ -12,17 +12,15 @@ description: |
   メールアドレスを display-name, local-part, domain に分解する。
   グループ構文は display-name ":" で識別する。
 
-  注: コマンド引数に " を含む文字列を渡すのはシェルエスケープが複雑になるため、
-  stdin 経由で入力する。これは Induct の課題でもある（コマンド引数のエスケープ問題）。
-
 vars:
   EMAIL: ./examples/email/zig-out/bin/email
 
 steps:
   # ── bare addr-spec ──
   - name: "bare addr-spec"
-    command: "${EMAIL} parse-address"
-    input_lines:
+    command: "${EMAIL}"
+    args:
+      - parse-address
       - 'jdoe@example.org'
     expect_output_contains:
       - "local-part: jdoe"
@@ -31,8 +29,9 @@ steps:
 
   # ── name-addr with display name ──
   - name: "name-addr with quoted display name"
-    command: "${EMAIL} parse-address"
-    input_lines:
+    command: "${EMAIL}"
+    args:
+      - parse-address
       - '"Joe Q. Public" <john.q.public@example.com>'
     expect_output_contains:
       - "display-name: Joe Q. Public"
@@ -40,8 +39,9 @@ steps:
       - "domain: example.com"
 
   - name: "name-addr with unquoted display name"
-    command: "${EMAIL} parse-address"
-    input_lines:
+    command: "${EMAIL}"
+    args:
+      - parse-address
       - 'John Doe <jdoe@example.net>'
     expect_output_contains:
       - "display-name: John Doe"
@@ -49,8 +49,9 @@ steps:
       - "domain: example.net"
 
   - name: "name-addr without display name (angle-addr only)"
-    command: "${EMAIL} parse-address"
-    input_lines:
+    command: "${EMAIL}"
+    args:
+      - parse-address
       - '<boss@nil.test>'
     expect_output_contains:
       - "local-part: boss"
@@ -59,7 +60,8 @@ steps:
 
   # ── group syntax (requires parse-addresses, not parse-address) ──
   - name: "group syntax"
-    command: "${EMAIL} parse-addresses"
-    input_lines:
+    command: "${EMAIL}"
+    args:
+      - parse-addresses
       - 'A Group:ed.jones@example.com;'
     expect_output_contains: "group: A Group"

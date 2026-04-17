@@ -313,7 +313,9 @@ pub fn printSchema(writer: anytype) void {
         \\  - run: echo "setup"
         \\
         \\test:                                   # Required: test definition
-        \\  command: ${{BIN}} hello                  # Required: command to execute
+        \\  command: ${{BIN}}                         # Required: command or executable path
+        \\  args:                                    # Optional: argv items; induct quotes them safely
+        \\    - hello
         \\  input: "stdin data"                    # Optional: stdin input
         \\  input_lines:                           # Optional: stdin as lines (exclusive with input)
         \\    line_ending: lf                      #   "lf" (default) or "crlf"
@@ -352,6 +354,8 @@ pub fn printSchema(writer: anytype) void {
         \\steps:                                  # Sequential steps (replaces test:)
         \\  - name: step one                      # Required: step name
         \\    command: echo hello                  # Required: command
+        \\    args:                                # Optional: argv items
+        \\      - hello
         \\    expect_output: "hello\n"             # Same fields as test:
         \\
         \\  - name: step two
@@ -374,7 +378,11 @@ pub fn printSchema(writer: anytype) void {
         \\description: string                     # Recommended: specification
         \\
         \\test_table:                             # Table-driven tests (replaces test:/steps:)
-        \\  command: "echo '${{input}}'"            # Required: command template with ${{var}}
+        \\  command: python3                        # Required: command template with ${{var}}
+        \\  args:                                   # Optional: args template; induct quotes each item safely
+        \\    - -c
+        \\    - "import sys; print(sys.argv[1])"
+        \\    - "${{input}}"
         \\  cases:                                # Required: list of test cases
         \\    - input: hello                      #   Variables (any non-reserved key)
         \\      expect_output: "hello\n"          #   Assertions (any expect_* field)

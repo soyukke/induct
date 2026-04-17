@@ -43,7 +43,7 @@ fn appendShellEscaped(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), i
 /// Build a full command string with env vars and working_dir prefix.
 /// Returns null if no modifications are needed (caller should use original command).
 fn buildFullCommand(allocator: Allocator, command: []const u8, test_case: spec_mod.TestCase) !?[]const u8 {
-    if (test_case.env == null and test_case.working_dir == null) return null;
+    if (test_case.args == null and test_case.env == null and test_case.working_dir == null) return null;
 
     var parts: std.ArrayListUnmanaged(u8) = .empty;
     errdefer parts.deinit(allocator);
@@ -64,7 +64,11 @@ fn buildFullCommand(allocator: Allocator, command: []const u8, test_case: spec_m
         try parts.appendSlice(allocator, "' && ");
     }
 
-    try parts.appendSlice(allocator, command);
+    if (test_case.args) |_| {
+        try test_case.appendRenderedCommand(allocator, &parts);
+    } else {
+        try parts.appendSlice(allocator, command);
+    }
     return try parts.toOwnedSlice(allocator);
 }
 

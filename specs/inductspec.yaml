@@ -115,6 +115,8 @@ include:
   # Input lines
   - execution/input-lines.yaml
   - execution/input-lines-table.yaml
+  - execution/args.yaml
+  - execution/args-table.yaml
 
   # RFC 4180 CSV
   - rfc4180/parse.yaml

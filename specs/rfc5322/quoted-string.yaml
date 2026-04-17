@@ -9,40 +9,48 @@ description: |
   クォート文字列内のバックスラッシュエスケープを展開する。
   \\ → \, \" → ", \x → x (任意の VCHAR/WSP)
 
-  注: バックスラッシュを含む文字列はコマンド引数経由だとシェルエスケープの問題が
-  発生するため、stdin 経由で入力する。
-
 vars:
   EMAIL: ./examples/email/zig-out/bin/email
 
 steps:
   - name: "no escapes"
-    command: "${EMAIL} unescape"
-    input_lines:
+    command: "${EMAIL}"
+    args:
+      - unescape
       - 'hello world'
     expect_output: "hello world\n"
 
   - name: "escaped backslash"
-    command: "${EMAIL} unescape"
-    input: "hello\\\\world"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'hello\\\\world'
     expect_output: "hello\\world\n"
 
   - name: "escaped quote"
-    command: "${EMAIL} unescape"
-    input: "hello\\\"world"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'hello\\\"world'
     expect_output: "hello\"world\n"
 
   - name: "multiple escapes"
-    command: "${EMAIL} unescape"
-    input: "a\\\\b\\\\c"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'a\\\\b\\\\c'
     expect_output: "a\\b\\c\n"
 
   - name: "escaped space"
-    command: "${EMAIL} unescape"
-    input: "hello\\ world"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'hello\\ world'
     expect_output: "hello world\n"
 
   - name: "empty string"
-    command: "${EMAIL} unescape"
-    input: ""
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - ''
     expect_output: "\n"

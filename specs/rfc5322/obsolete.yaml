@@ -16,42 +16,69 @@ vars:
 steps:
   # ── obs-year: 2桁年の解釈 ──
   - name: "obs-year: 00 → 2000"
-    command: "${EMAIL} parse-date 1 Jan 00 00:00 +0000"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 00 00:00 +0000"
     expect_output_contains: "year: 2000"
 
   - name: "obs-year: 49 → 2049"
-    command: "${EMAIL} parse-date 1 Jan 49 00:00 +0000"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 49 00:00 +0000"
     expect_output_contains: "year: 2049"
 
   - name: "obs-year: 50 → 1950"
-    command: "${EMAIL} parse-date 1 Jan 50 00:00 +0000"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 50 00:00 +0000"
     expect_output_contains: "year: 1950"
 
   - name: "obs-year: 99 → 1999"
-    command: "${EMAIL} parse-date 1 Jan 99 00:00 +0000"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 99 00:00 +0000"
     expect_output_contains: "year: 1999"
 
   # ── obs-zone: 旧タイムゾーン名 ──
   # これらは数値オフセットではなく名前で表される
   - name: "obs-zone: UT"
-    command: "${EMAIL} parse-date 1 Jan 2024 12:00:00 UT"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 UT"
     expect_output_contains: "zone: UT"
 
   - name: "obs-zone: GMT"
-    command: "${EMAIL} parse-date 1 Jan 2024 12:00:00 GMT"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 GMT"
     expect_output_contains: "zone: GMT"
 
   - name: "obs-zone: EST"
-    command: "${EMAIL} parse-date 1 Jan 2024 12:00:00 EST"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 EST"
     expect_output_contains: "zone: EST"
 
   - name: "obs-zone: PDT"
-    command: "${EMAIL} parse-date 1 Jan 2024 12:00:00 PDT"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 PDT"
     expect_output_contains: "zone: PDT"
 
   # ── 3桁年（Section 4.3 互換） ──
   # "If a two digit year is encountered ... three digit years ..."
   # 3桁年は仕様上存在しないが、パーサーの堅牢性テスト
   - name: "4-digit year passthrough"
-    command: "${EMAIL} parse-date 1 Jan 2024 12:00 +0000"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00 +0000"
     expect_output_contains: "year: 2024"

@@ -1,0 +1,26 @@
+name: args field
+description: |
+  args を使うと、spec 側で shell escape を書かずに argv を安全に渡せる。
+  spec レベルの vars も各引数で展開される。
+
+vars:
+  PYTHON: python3
+  VALUE: value with spaces
+
+steps:
+  - name: "passes exact argv items"
+    command: "${PYTHON}"
+    args:
+      - -c
+      - 'import sys; print(sys.argv[1]); print(sys.argv[2])'
+      - 'hello world'
+      - 'a "quoted" value'
+    expect_output: "hello world\na \"quoted\" value\n"
+
+  - name: "expands spec vars inside args"
+    command: "${PYTHON}"
+    args:
+      - -c
+      - 'import sys; print(sys.argv[1])'
+      - "${VALUE}"
+    expect_output: "value with spaces\n"

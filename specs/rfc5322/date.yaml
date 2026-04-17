@@ -15,7 +15,10 @@ vars:
   EMAIL: ./examples/email/zig-out/bin/email
 
 test_table:
-  command: "${EMAIL} parse-date ${date}"
+  command: "${EMAIL}"
+  args:
+    - parse-date
+    - "${date}"
   cases:
     - name: full date-time with day-of-week
       date: "Thu, 13 Feb 1969 23:32:54 -0330"
