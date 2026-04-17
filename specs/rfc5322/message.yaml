@@ -1,0 +1,87 @@
+name: RFC 5322 message parsing
+description: |
+  RFC 5322 Section 3.5: Overall Message Syntax
+  RFC 5322 Section 3.6: Field Definitions
+
+  message = (header CRLF) *CRLF body
+  ヘッダは空行（CRLF CRLF）で本文と区切られる。
+  各ヘッダフィールドは name ":" value の形式。
+  フォールディング（継続行）は unfolding して1行に結合。
+
+  Section 3.6 で定義される主要フィールド:
+  - From (originator)
+  - To, Cc, Bcc (destination)
+  - Subject (informational)
+  - Date (origination date)
+  - Message-ID (identification)
+
+vars:
+  EMAIL: ./examples/email/zig-out/bin/email
+
+steps:
+  # ── 基本的なメッセージ構造 ──
+  - name: "basic message with headers and body"
+    command: "${EMAIL} parse-message"
+    input: "From: john@example.com\r\nTo: jane@example.com\r\nSubject: Hello\r\n\r\nBody text here.\r\n"
+    expect_output_contains:
+      - "From: john@example.com"
+      - "To: jane@example.com"
+      - "Subject: Hello"
+      - "Body text here."
+
+  # ── ヘッダの folding/unfolding ──
+  - name: "folded header is unfolded"
+    command: "${EMAIL} parse-message"
+    input: "Subject: This is\r\n a long subject\r\n\r\nBody\r\n"
+    expect_output_contains: "Subject: This is a long subject"
+
+  # ── 複数の宛先 ──
+  - name: "multiple header fields"
+    command: "${EMAIL} parse-message"
+    input: "From: sender@a.test\r\nTo: rcpt@b.test\r\nCc: cc@c.test\r\nBcc: bcc@d.test\r\nDate: Thu, 13 Feb 1969 23:32:54 -0330\r\nMessage-ID: <unique@example.com>\r\n\r\nContent\r\n"
+    expect_output_contains:
+      - "From: sender@a.test"
+      - "To: rcpt@b.test"
+      - "Cc: cc@c.test"
+      - "Bcc: bcc@d.test"
+      - "Date: Thu, 13 Feb 1969 23:32:54 -0330"
+      - "Message-ID: <unique@example.com>"
+      - "Content"
+
+  # ── 空の本文 ──
+  - name: "empty body"
+    command: "${EMAIL} parse-message"
+    input: "From: a@b.test\r\nSubject: No body\r\n\r\n"
+    expect_output_contains:
+      - "From: a@b.test"
+      - "Subject: No body"
+
+  # ── ヘッダのみ（本文なし） ──
+  - name: "headers only without body separator"
+    command: "${EMAIL} parse-message"
+    input: "From: a@b.test\r\nSubject: Test\r\n"
+    expect_output_contains:
+      - "From: a@b.test"
+      - "Subject: Test"
+
+  # ── 複数行の本文 ──
+  - name: "multiline body"
+    command: "${EMAIL} parse-message"
+    input: "Subject: Test\r\n\r\nLine 1\r\nLine 2\r\nLine 3\r\n"
+    expect_output_contains:
+      - "Subject: Test"
+      - "Line 1"
+      - "Line 2"
+      - "Line 3"
+
+  # ── RFC 5322 Appendix A.1.1 の例 ──
+  - name: "Appendix A.1.1: minimal message"
+    command: "${EMAIL} parse-message"
+    input: "From: John Doe <jdoe@machine.example>\r\nTo: Mary Smith <mary@example.net>\r\nSubject: Saying Hello\r\nDate: Fri, 21 Nov 1997 09:55:06 -0600\r\nMessage-ID: <1234@local.machine.example>\r\n\r\nThis is a message just to say hello.\r\nSo, \"Hello\".\r\n"
+    expect_output_contains:
+      - "From: John Doe <jdoe@machine.example>"
+      - "To: Mary Smith <mary@example.net>"
+      - "Subject: Saying Hello"
+      - "Date: Fri, 21 Nov 1997 09:55:06 -0600"
+      - "Message-ID: <1234@local.machine.example>"
+      - "This is a message just to say hello."

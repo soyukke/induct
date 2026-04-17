@@ -1,0 +1,86 @@
+name: input_lines feature
+description: |
+  input_lines フィールドのテスト。
+  行のリストと line_ending/trailing の組み合わせで stdin を構成する。
+
+steps:
+  # ── 短縮形（LF, trailing: true）──
+  - name: "short form: list of lines with LF"
+    command: cat
+    input_lines:
+      - 'hello'
+      - 'world'
+    expect_output: "hello\nworld\n"
+
+  # ── マップ形式: LF ──
+  - name: "map form: LF with trailing"
+    command: cat
+    input_lines:
+      line_ending: lf
+      trailing: true
+      lines:
+        - 'aaa'
+        - 'bbb'
+    expect_output: "aaa\nbbb\n"
+
+  # ── マップ形式: CRLF ──
+  - name: "map form: CRLF"
+    command: cat
+    input_lines:
+      line_ending: crlf
+      lines:
+        - 'first'
+        - 'second'
+    expect_output: "first\r\nsecond\r\n"
+
+  # ── trailing: false ──
+  - name: "trailing false: no newline at end"
+    command: cat
+    input_lines:
+      line_ending: lf
+      trailing: false
+      lines:
+        - 'aaa'
+        - 'bbb'
+    expect_output: "aaa\nbbb"
+
+  # ── trailing false with CRLF ──
+  - name: "trailing false with CRLF"
+    command: cat
+    input_lines:
+      line_ending: crlf
+      trailing: false
+      lines:
+        - 'x'
+        - 'y'
+    expect_output: "x\r\ny"
+
+  # ── 単一行 ──
+  - name: "single line with trailing"
+    command: cat
+    input_lines:
+      line_ending: lf
+      lines:
+        - 'only'
+    expect_output: "only\n"
+
+  # ── 単一行 trailing false ──
+  - name: "single line without trailing"
+    command: cat
+    input_lines:
+      line_ending: lf
+      trailing: false
+      lines:
+        - 'only'
+    expect_output: "only"
+
+  # ── 空行を含む ──
+  - name: "empty line in the middle"
+    command: cat
+    input_lines:
+      line_ending: lf
+      lines:
+        - 'a'
+        - ''
+        - 'c'
+    expect_output: "a\n\nc\n"
