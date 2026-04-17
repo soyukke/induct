@@ -80,7 +80,7 @@ const templates = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
+    const allocator = std.heap.smp_allocator;
     const io = init.io;
     const raw_args = try init.minimal.args.toSlice(init.arena.allocator());
     const args: []const []const u8 = @ptrCast(raw_args);
