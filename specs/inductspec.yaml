@@ -116,6 +116,9 @@ include:
   - execution/input-lines.yaml
   - execution/input-lines-table.yaml
 
+  # RFC 4180 CSV
+  - rfc4180/parse.yaml
+
   # List contains
   - execution/list-contains.yaml
 
