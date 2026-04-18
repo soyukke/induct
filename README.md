@@ -26,7 +26,14 @@ npx @soyukke/induct help
 ```bash
 git clone https://github.com/soyukke/induct.git
 cd induct
-zig build          # Zig 0.16.0+ が必要
+nix develop        # Zig 0.16.0 を自動で揃える
+zig build
+```
+
+ワンショットで実行するなら：
+
+```bash
+nix develop -c zig build
 ```
 
 ## Quick Start
