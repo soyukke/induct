@@ -1,5 +1,7 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const spec_mod = @import("../core/spec.zig");
 
 pub const ProcessResult = struct {
     stdout: []const u8,
@@ -40,28 +42,48 @@ fn termExitCode(term: std.process.Child.Term) i32 {
     };
 }
 
-pub fn runCommand(
+fn currentProcessEnviron() std.process.Environ {
+    switch (builtin.os.tag) {
+        .windows => return .{ .block = .global },
+        .wasi, .emscripten => if (!builtin.link_libc) return .{ .block = .global },
+        .freestanding, .other => return .{ .block = .global },
+        else => {},
+    }
+
+    if (builtin.link_libc) {
+        const c_environ = std.c.environ;
+        var env_count: usize = 0;
+        while (c_environ[env_count] != null) : (env_count += 1) {}
+        return .{ .block = .{ .slice = c_environ[0..env_count :null] } };
+    }
+
+    return .empty;
+}
+
+fn buildEnvironmentMap(
     allocator: Allocator,
-    command: []const u8,
+    env_vars: ?[]const spec_mod.EnvVar,
+) !?std.process.Environ.Map {
+    const vars = env_vars orelse return null;
+
+    var env_map = try std.process.Environ.createMap(currentProcessEnviron(), allocator);
+    errdefer env_map.deinit();
+
+    for (vars) |ev| {
+        try env_map.put(ev.key, ev.value);
+    }
+
+    return env_map;
+}
+
+fn collectChildResult(
+    allocator: Allocator,
+    io: std.Io,
+    child: *std.process.Child,
     stdin_data: ?[]const u8,
     timeout_ms: ?u64,
 ) !ProcessResult {
-    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
     const start_time = std.Io.Clock.awake.now(io);
-
-    // Parse command into arguments using shell
-    const argv = [_][]const u8{ "sh", "-c", command };
-
-    var child = std.process.spawn(io, .{
-        .argv = &argv,
-        .stdin = if (stdin_data != null) .pipe else .inherit,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    }) catch {
-        return RunError.SpawnFailed;
-    };
     defer if (child.id != null) child.kill(io);
 
     // Write stdin if provided
@@ -125,6 +147,68 @@ pub fn runCommand(
         .duration_ns = @intCast(start_time.durationTo(end_time).toNanoseconds()),
         .timed_out = timed_out,
     };
+}
+
+pub fn runCommand(
+    allocator: Allocator,
+    command: []const u8,
+    stdin_data: ?[]const u8,
+    timeout_ms: ?u64,
+) !ProcessResult {
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{
+        .environ = currentProcessEnviron(),
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const argv = [_][]const u8{ "sh", "-c", command };
+    var child = std.process.spawn(io, .{
+        .argv = &argv,
+        .stdin = if (stdin_data != null) .pipe else .inherit,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    }) catch {
+        return RunError.SpawnFailed;
+    };
+
+    return collectChildResult(allocator, io, &child, stdin_data, timeout_ms);
+}
+
+pub fn runArgv(
+    allocator: Allocator,
+    program: []const u8,
+    args: []const []const u8,
+    stdin_data: ?[]const u8,
+    working_dir: ?[]const u8,
+    env_vars: ?[]const spec_mod.EnvVar,
+    timeout_ms: ?u64,
+) !ProcessResult {
+    var threaded: std.Io.Threaded = .init(std.heap.smp_allocator, .{
+        .environ = currentProcessEnviron(),
+    });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    const argv = try allocator.alloc([]const u8, args.len + 1);
+    defer allocator.free(argv);
+    argv[0] = program;
+    @memcpy(argv[1..], args);
+
+    var env_map = try buildEnvironmentMap(allocator, env_vars);
+    defer if (env_map) |*map| map.deinit();
+
+    var child = std.process.spawn(io, .{
+        .argv = argv,
+        .cwd = if (working_dir) |wd| .{ .path = wd } else .inherit,
+        .environ_map = if (env_map) |*map| map else null,
+        .stdin = if (stdin_data != null) .pipe else .inherit,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    }) catch {
+        return RunError.SpawnFailed;
+    };
+
+    return collectChildResult(allocator, io, &child, stdin_data, timeout_ms);
 }
 
 pub fn runCommandSimple(allocator: Allocator, command: []const u8) !ProcessResult {

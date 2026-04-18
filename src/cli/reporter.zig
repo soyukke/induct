@@ -314,7 +314,7 @@ pub fn printSchema(writer: anytype) void {
         \\
         \\test:                                   # Required: test definition
         \\  command: ${{BIN}}                         # Required: command or executable path
-        \\  args:                                    # Optional: argv items; induct quotes them safely
+        \\  args:                                    # Optional: argv items; executed directly without shell
         \\    - hello
         \\  input: "stdin data"                    # Optional: stdin input
         \\  input_lines:                           # Optional: stdin as lines (exclusive with input)
@@ -354,7 +354,7 @@ pub fn printSchema(writer: anytype) void {
         \\steps:                                  # Sequential steps (replaces test:)
         \\  - name: step one                      # Required: step name
         \\    command: echo hello                  # Required: command
-        \\    args:                                # Optional: argv items
+        \\    args:                                # Optional: argv items; executed directly
         \\      - hello
         \\    expect_output: "hello\n"             # Same fields as test:
         \\
@@ -379,7 +379,7 @@ pub fn printSchema(writer: anytype) void {
         \\
         \\test_table:                             # Table-driven tests (replaces test:/steps:)
         \\  command: python3                        # Required: command template with ${{var}}
-        \\  args:                                   # Optional: args template; induct quotes each item safely
+        \\  args:                                   # Optional: args template; executed directly
         \\    - -c
         \\    - "import sys; print(sys.argv[1])"
         \\    - "${{input}}"

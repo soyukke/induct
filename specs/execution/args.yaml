@@ -2,6 +2,7 @@ name: args field
 description: |
   args を使うと、spec 側で shell escape を書かずに argv を安全に渡せる。
   spec レベルの vars も各引数で展開される。
+  args を使う test は shell を介さず直接実行される。
 
 vars:
   PYTHON: python3
@@ -24,3 +25,20 @@ steps:
       - 'import sys; print(sys.argv[1])'
       - "${VALUE}"
     expect_output: "value with spaces\n"
+
+  - name: "passes env directly to child process"
+    command: "${PYTHON}"
+    args:
+      - -c
+      - 'import os; print(os.environ["INDUCT_ARGS_ENV"])'
+    env:
+      INDUCT_ARGS_ENV: "hello direct env"
+    expect_output: "hello direct env\n"
+
+  - name: "applies working_dir without shell"
+    command: "${PYTHON}"
+    args:
+      - -c
+      - 'import os; print(os.path.basename(os.getcwd()))'
+    working_dir: specs/rfc5322
+    expect_output: "rfc5322\n"

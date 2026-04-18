@@ -43,7 +43,7 @@ fn appendShellEscaped(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), i
 /// Build a full command string with env vars and working_dir prefix.
 /// Returns null if no modifications are needed (caller should use original command).
 fn buildFullCommand(allocator: Allocator, command: []const u8, test_case: spec_mod.TestCase) !?[]const u8 {
-    if (test_case.args == null and test_case.env == null and test_case.working_dir == null) return null;
+    if (test_case.env == null and test_case.working_dir == null) return null;
 
     var parts: std.ArrayListUnmanaged(u8) = .empty;
     errdefer parts.deinit(allocator);
@@ -64,11 +64,7 @@ fn buildFullCommand(allocator: Allocator, command: []const u8, test_case: spec_m
         try parts.appendSlice(allocator, "' && ");
     }
 
-    if (test_case.args) |_| {
-        try test_case.appendRenderedCommand(allocator, &parts);
-    } else {
-        try parts.appendSlice(allocator, command);
-    }
+    try parts.appendSlice(allocator, command);
     return try parts.toOwnedSlice(allocator);
 }
 
@@ -173,11 +169,6 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
     var timed_out = false;
 
     if (!setup_failed) {
-        // Build full command with env vars and working_dir
-        const full_cmd_owned = try buildFullCommand(allocator, spec.test_case.command, spec.test_case);
-        defer if (full_cmd_owned) |fc| allocator.free(fc);
-        const full_cmd = full_cmd_owned orelse spec.test_case.command;
-
         // Resolve stdin data: input_lines takes priority conversion, then input
         const resolved_input = if (spec.test_case.input_lines) |il|
             il.toBytes(allocator) catch null
@@ -188,12 +179,29 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
         const stdin_data = resolved_input orelse spec.test_case.input;
 
         // Run the test command
-        var proc_result = runner.runCommand(
-            allocator,
-            full_cmd,
-            stdin_data,
-            effective_timeout,
-        ) catch |err| {
+        var proc_result = (if (spec.test_case.args) |args|
+            runner.runArgv(
+                allocator,
+                spec.test_case.command,
+                args,
+                stdin_data,
+                spec.test_case.working_dir,
+                spec.test_case.env,
+                effective_timeout,
+            )
+        else blk: {
+            // Build full command with env vars and working_dir for shell-mode specs
+            const full_cmd_owned = try buildFullCommand(allocator, spec.test_case.command, spec.test_case);
+            defer if (full_cmd_owned) |fc| allocator.free(fc);
+            const full_cmd = full_cmd_owned orelse spec.test_case.command;
+
+            break :blk runner.runCommand(
+                allocator,
+                full_cmd,
+                stdin_data,
+                effective_timeout,
+            );
+        }) catch |err| {
             const end_time = std.Io.Clock.awake.now(io);
             return SpecResult{
                 .id = try generateId(allocator),

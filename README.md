@@ -119,7 +119,7 @@ description: |                          # 推奨: 仕様の本文
 
 test:
   command: string                       # 必須: 実行コマンド
-  args:                                 # 任意: 引数配列（shell escape は induct が処理）
+  args:                                 # 任意: 引数配列（shell を介さず direct argv 実行）
     - string
   input: string                         # 任意: stdin入力
   expect_output: string                 # 任意: stdout完全一致
@@ -160,7 +160,7 @@ name: string
 steps:
   - name: string                        # 必須: ステップ名
     command: string                     # 必須: 実行コマンド
-    args:                               # 任意: 引数配列（shell escape は induct が処理）
+    args:                               # 任意: 引数配列（shell を介さず direct argv 実行）
       - string
     expect_output: string               # test: と同じフィールドが使える
   - name: string
