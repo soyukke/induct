@@ -84,6 +84,16 @@ pub fn build(b: *std.Build) void {
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
+    if (target.result.os.tag == .windows) {
+        const write_files = b.addWriteFiles();
+        const wrapper = write_files.add("induct",
+            \\#!/usr/bin/env bash
+            \\exec "$(dirname "$0")/induct.exe" "$@"
+            \\
+        );
+        b.getInstallStep().dependOn(&b.addInstallBinFile(wrapper, "induct").step);
+    }
+
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).
     // This will evaluate the `run` step rather than the default step.

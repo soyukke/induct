@@ -21,12 +21,14 @@ description: |
            inside a field must be escaped by preceding it with another double quote.
 
 vars:
-  CSV: ./examples/csv/zig-out/bin/csv
+  CSV: ./examples/csv/zig-out/bin/csv${EXEEXT}
 
 steps:
   # ── Rule 1: Records delimited by CRLF ──
   - name: "Rule 1: CRLF delimited records"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -36,7 +38,9 @@ steps:
 
   # ── Rule 2: Last record may omit trailing line break ──
   - name: "Rule 2: trailing CRLF present"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -44,7 +48,9 @@ steps:
     expect_output: "[aaa][bbb]\n"
 
   - name: "Rule 2: trailing CRLF absent"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       trailing: false
@@ -54,7 +60,9 @@ steps:
 
   # ── Rule 3: Optional header line ──
   - name: "Rule 3: header line treated as normal record"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -65,7 +73,9 @@ steps:
 
   # ── Rule 4: Comma-separated fields, spaces preserved ──
   - name: "Rule 4: fields separated by commas"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -74,7 +84,9 @@ steps:
     expect_output: "[a][b][c]\n[1][2][3]\n"
 
   - name: "Rule 4: spaces are part of field"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -82,7 +94,9 @@ steps:
     expect_output: "[ a ][ b ][c ]\n"
 
   - name: "Rule 4: single field per record"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -91,7 +105,9 @@ steps:
 
   # ── Rule 5: Fields optionally enclosed in double quotes ──
   - name: "Rule 5: unquoted fields"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -99,7 +115,9 @@ steps:
     expect_output: "[aaa][bbb][ccc]\n"
 
   - name: "Rule 5: quoted fields"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -107,7 +125,9 @@ steps:
     expect_output: "[aaa][bbb][ccc]\n"
 
   - name: "Rule 5: mixed quoted and unquoted"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -116,7 +136,9 @@ steps:
 
   # ── Rule 6: Fields with special characters must be quoted ──
   - name: "Rule 6: field containing comma"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -124,13 +146,17 @@ steps:
     expect_output: "[a,b][c]\n"
 
   - name: "Rule 6: field containing CRLF"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input: "\"line1\r\nline2\",b\r\n"
     expect_output_contains: "[line1"
     expect_exit_code: 0
 
   - name: "Rule 6: field containing double quote"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -139,7 +165,9 @@ steps:
 
   # ── Rule 7: Escaped double quotes ──
   - name: "Rule 7: double-quote escaped as two double-quotes"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -147,7 +175,9 @@ steps:
     expect_output: "[\"hello\"][normal]\n"
 
   - name: "Rule 7: multiple escaped quotes"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:
@@ -155,7 +185,9 @@ steps:
     expect_output: "[a\"b\"c][d]\n"
 
   - name: "Rule 7: field that is just a quote"
-    command: "${CSV} parse"
+    command: "${CSV}"
+    args:
+      - parse
     input_lines:
       line_ending: crlf
       lines:

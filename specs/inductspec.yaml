@@ -121,6 +121,15 @@ include:
   # RFC 4180 CSV
   - rfc4180/parse.yaml
 
+  # RFC 3986 URI
+  - rfc3986/parse.yaml
+  - rfc3986/resolve.yaml
+
+  # RFC 4648 Base64
+  - rfc4648/encode.yaml
+  - rfc4648/decode.yaml
+  - rfc4648/invalid.yaml
+
   # List contains
   - execution/list-contains.yaml
 

@@ -24,7 +24,7 @@ steps:
     command: ./zig-out/bin/induct run specs/execution/args.yaml --dry-run 2>&1
     expect_output_contains:
       - "[DRY-RUN] args field > passes exact argv items"
-      - "Command: 'python3' '-c'"
+      - "Command: 'python' '-c'"
       - "'hello world'"
       - "'a \"quoted\" value'"
     expect_exit_code: 0

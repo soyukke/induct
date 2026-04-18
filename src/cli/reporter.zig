@@ -307,7 +307,7 @@ pub fn printSchema(writer: anytype) void {
         \\  the body. test: section verifies it.
         \\
         \\vars:                                    # Optional: template variables
-        \\  BIN: ./my-tool                         #   Expanded as ${{BIN}} in commands
+        \\  BIN: ./my-tool${{EXEEXT}}              #   ${{EXEEXT}}: "" on Unix, ".exe" on Windows
         \\
         \\setup:                                  # Optional: pre-test commands
         \\  - run: echo "setup"
@@ -326,11 +326,11 @@ pub fn printSchema(writer: anytype) void {
         \\  expect_output: "hello\n"               # Optional: exact stdout match
         \\  expect_output_contains: "llo"          # Optional: stdout substring match
         \\  expect_output_not_contains: "err"      # Optional: stdout negative match
-        \\  expect_output_regex: "hel+"            # Optional: stdout regex (POSIX ERE)
+        \\  expect_output_regex: "hel+"            # Optional: stdout regex
         \\  expect_stderr: "warn\n"                # Optional: exact stderr match
         \\  expect_stderr_contains: "warn"         # Optional: stderr substring match
         \\  expect_stderr_not_contains: "FATAL"    # Optional: stderr negative match
-        \\  expect_stderr_regex: "warn.*"           # Optional: stderr regex (POSIX ERE)
+        \\  expect_stderr_regex: "warn.*"           # Optional: stderr regex
         \\  expect_exit_code: 0                    # Optional: exit code (default: 0)
         \\  env:                                   # Optional: environment variables
         \\    KEY: value
@@ -378,22 +378,21 @@ pub fn printSchema(writer: anytype) void {
         \\description: string                     # Recommended: specification
         \\
         \\test_table:                             # Table-driven tests (replaces test:/steps:)
-        \\  command: python3                        # Required: command template with ${{var}}
+        \\  command: ./base64${{EXEEXT}}            # Required: command template with ${{var}}
         \\  args:                                   # Optional: args template; executed directly
-        \\    - -c
-        \\    - "import sys; print(sys.argv[1])"
-        \\    - "${{input}}"
+        \\    - encode
         \\  cases:                                # Required: list of test cases
-        \\    - input: hello                      #   Variables (any non-reserved key)
-        \\      expect_output: "hello\n"          #   Assertions (any expect_* field)
-        \\    - input: world
-        \\      expect_output_contains: "world"   # Each case can use different assertions
-        \\    - name: custom name                 # Optional: explicit case name
-        \\      input: fail
+        \\    - input: f                          #   input/input_lines/expect_* are reserved keys
+        \\      expect_output: "Zg=="             #   Assertions (any expect_* field)
+        \\    - input: foo
+        \\      expect_output_contains: "m9"      # Each case can use different assertions
+        \\    - name: invalid input               # Optional: explicit case name
+        \\      input: "!!"
         \\      expect_exit_code: 1               # exit_code, stderr, regex all supported
         \\```
         \\
-        \\- `${{var}}` in command is replaced with the case's variable value
+        \\- `${{var}}` in command/args/input_lines is replaced with the case's variable value
+        \\- Built-in `${{EXEEXT}}` expands to `""` on Unix and `".exe"` on Windows
         \\- Case names auto-generated from variable values if not specified
         \\- Expanded to steps internally; setup/teardown work as normal
         \\- `test_table:`, `test:`, and `steps:` are mutually exclusive
@@ -420,7 +419,7 @@ pub fn printSchema(writer: anytype) void {
         \\- `name` and `test.command` are required fields
         \\- `expect_exit_code` defaults to 0 if not specified
         \\- Multiple expect_* fields can be combined (all must pass)
-        \\- `expect_output_regex` uses POSIX Extended Regular Expressions
+        \\- `expect_output_regex` supports common regex syntax: `^ $ . * + ? [] () |`
         \\- `timeout_ms` kills the process if exceeded
         \\- `setup` commands run before the test (fail = test skipped)
         \\- `teardown` commands always run (even on test failure)

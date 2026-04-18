@@ -13,35 +13,47 @@ description: |
   - CRLF + 非WSP → そのまま（レコード境界）
 
 vars:
-  EMAIL: ./examples/email/zig-out/bin/email
+  EMAIL: ./examples/email/zig-out/bin/email${EXEEXT}
 
 steps:
   - name: "basic unfolding: CRLF + SP"
-    command: "${EMAIL} unfold"
+    command: "${EMAIL}"
+    args:
+      - unfold
     input: "Subject: This\r\n is a test"
     expect_output: "Subject: This is a test"
 
   - name: "CRLF + TAB"
-    command: "${EMAIL} unfold"
+    command: "${EMAIL}"
+    args:
+      - unfold
     input: "Subject: This\r\n\tis a test"
     expect_output: "Subject: This is a test"
 
   - name: "multiple folds"
-    command: "${EMAIL} unfold"
+    command: "${EMAIL}"
+    args:
+      - unfold
     input: "Subject: This\r\n is\r\n a\r\n test"
     expect_output: "Subject: This is a test"
 
   - name: "no folding (bare CRLF without WSP)"
-    command: "${EMAIL} unfold"
+    command: "${EMAIL}"
+    args:
+      - unfold
     input: "Header1: value1\r\nHeader2: value2"
     expect_output: "Header1: value1\r\nHeader2: value2"
 
   - name: "CRLF + multiple spaces normalized to single space"
-    command: "${EMAIL} unfold"
+    command: "${EMAIL}"
+    args:
+      - unfold
     input: "Subject: This\r\n   is a test"
     expect_output: "Subject: This is a test"
 
   - name: "empty input"
-    command: "${EMAIL} unfold"
+    command: "${EMAIL}"
+    args:
+      - unfold
     input: ""
     expect_output: ""

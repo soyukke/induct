@@ -132,7 +132,7 @@ test:
   expect_output: string                 # 任意: stdout完全一致
   expect_output_contains: string        # 任意: stdout部分一致
   expect_output_not_contains: string    # 任意: stdout除外パターン
-  expect_output_regex: string           # 任意: stdout正規表現(POSIX ERE)
+  expect_output_regex: string           # 任意: stdout正規表現
   expect_stderr: string                 # 任意: stderr完全一致
   expect_stderr_contains: string        # 任意: stderr部分一致
   expect_exit_code: number              # 任意: 終了コード (デフォルト: 0)
@@ -141,6 +141,8 @@ test:
   working_dir: string                   # 任意: 作業ディレクトリ
   timeout_ms: number                    # 任意: タイムアウト(ms)
 ```
+
+`vars:` と `test_table:` のテンプレートでは `${EXEEXT}` が組み込みで使える。Unix 系では `""`、Windows では `".exe"` に展開される。
 
 ### セットアップ・ティアダウン
 

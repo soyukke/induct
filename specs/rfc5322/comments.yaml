@@ -10,44 +10,59 @@ description: |
   クォート文字列 "" 内のコメント構文は無視される。
 
 vars:
-  EMAIL: ./examples/email/zig-out/bin/email
+  EMAIL: ./examples/email/zig-out/bin/email${EXEEXT}
 
 steps:
   - name: "simple comment removal"
-    command: "${EMAIL} strip-comments"
+    command: "${EMAIL}"
+    args:
+      - strip-comments
     input_lines:
       - 'pete(his account)@silly.test'
-    expect_output_contains: "pete"
-    expect_output_contains: "silly.test"
+    expect_output_contains:
+      - "pete"
+      - "silly.test"
 
   - name: "nested comment removal"
-    command: "${EMAIL} strip-comments"
+    command: "${EMAIL}"
+    args:
+      - strip-comments
     input_lines:
       - 'a(outer(inner)end)@example.com'
-    expect_output_contains: "a"
-    expect_output_contains: "example.com"
+    expect_output_contains:
+      - "a"
+      - "example.com"
 
   - name: "comment with quoted-pair"
-    command: "${EMAIL} strip-comments"
+    command: "${EMAIL}"
+    args:
+      - strip-comments
     input_lines:
       - 'test(comment with \) paren)@example.com'
-    expect_output_contains: "test"
-    expect_output_contains: "example.com"
+    expect_output_contains:
+      - "test"
+      - "example.com"
 
   - name: "no comment (passthrough)"
-    command: "${EMAIL} strip-comments"
+    command: "${EMAIL}"
+    args:
+      - strip-comments
     input_lines:
       - 'simple@example.com'
     expect_output: "simple@example.com\n"
 
   - name: "comment preserved inside quoted string"
-    command: "${EMAIL} strip-comments"
+    command: "${EMAIL}"
+    args:
+      - strip-comments
     input_lines:
       - '"not(a)comment"@example.com'
     expect_output: "\"not(a)comment\"@example.com\n"
 
   - name: "multiple comments"
-    command: "${EMAIL} strip-comments"
+    command: "${EMAIL}"
+    args:
+      - strip-comments
     input_lines:
       - 'a(one)b(two)@example.com'
     expect_output_contains: "example.com"

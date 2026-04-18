@@ -11,7 +11,7 @@ description: |
   主要なケース（2桁年、旧TZ名）をテストする。
 
 vars:
-  EMAIL: ./examples/email/zig-out/bin/email
+  EMAIL: ./examples/email/zig-out/bin/email${EXEEXT}
 
 steps:
   # ── obs-year: 2桁年の解釈 ──

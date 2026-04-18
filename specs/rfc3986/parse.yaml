@@ -4,10 +4,13 @@ description: |
   空のコンポーネントは出力しない。
 
 vars:
-  URI: ./examples/uri/zig-out/bin/uri
+  URI: ./examples/uri/zig-out/bin/uri${EXEEXT}
 
 test_table:
-  command: "${URI} parse '${input}'"
+  command: "${URI}"
+  args:
+    - parse
+    - "${input}"
   cases:
     - name: full URI
       input: "foo://example.com:8042/over/there?name=ferret#nose"

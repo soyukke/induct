@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const spec_mod = @import("../core/spec.zig");
@@ -834,8 +835,21 @@ fn isReservedKey(key: []const u8) bool {
     return false;
 }
 
-/// Replace all ${var} occurrences in template with values from the case map.
-fn expandTemplate(allocator: Allocator, template: []const u8, case_map: *std.StringHashMap(YamlValue)) ParseError![]const u8 {
+fn builtinTemplateValue(var_name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, var_name, "EXEEXT")) {
+        return if (builtin.os.tag == .windows) ".exe" else "";
+    }
+    return null;
+}
+
+fn expandTemplateWithDepth(
+    allocator: Allocator,
+    template: []const u8,
+    case_map: *std.StringHashMap(YamlValue),
+    depth: usize,
+) ParseError![]const u8 {
+    if (depth > 8) return ParseError.InvalidYaml;
+
     var result: std.ArrayListUnmanaged(u8) = .empty;
     errdefer result.deinit(allocator);
 
@@ -848,7 +862,9 @@ fn expandTemplate(allocator: Allocator, template: []const u8, case_map: *std.Str
 
             if (case_map.get(var_name)) |val| {
                 if (val.getString()) |s| {
-                    result.appendSlice(allocator, s) catch return ParseError.OutOfMemory;
+                    const expanded = try expandTemplateWithDepth(allocator, s, case_map, depth + 1);
+                    defer allocator.free(expanded);
+                    result.appendSlice(allocator, expanded) catch return ParseError.OutOfMemory;
                 } else if (val.getInt()) |int_val| {
                     const s = std.fmt.allocPrint(allocator, "{d}", .{int_val}) catch return ParseError.OutOfMemory;
                     result.appendSlice(allocator, s) catch return ParseError.OutOfMemory;
@@ -856,6 +872,8 @@ fn expandTemplate(allocator: Allocator, template: []const u8, case_map: *std.Str
                 } else {
                     return ParseError.InvalidYaml;
                 }
+            } else if (builtinTemplateValue(var_name)) |value| {
+                result.appendSlice(allocator, value) catch return ParseError.OutOfMemory;
             } else {
                 // Variable not found — keep as-is
                 result.appendSlice(allocator, template[i .. var_end + 1]) catch return ParseError.OutOfMemory;
@@ -868,6 +886,38 @@ fn expandTemplate(allocator: Allocator, template: []const u8, case_map: *std.Str
     }
 
     return result.toOwnedSlice(allocator) catch return ParseError.OutOfMemory;
+}
+
+/// Replace all ${var} occurrences in template with values from the case map.
+fn expandTemplate(allocator: Allocator, template: []const u8, case_map: *std.StringHashMap(YamlValue)) ParseError![]const u8 {
+    return expandTemplateWithDepth(allocator, template, case_map, 0);
+}
+
+fn expandInputLines(
+    allocator: Allocator,
+    input_lines: spec_mod.InputLines,
+    case_map: *std.StringHashMap(YamlValue),
+) ParseError!spec_mod.InputLines {
+    defer input_lines.deinit(allocator);
+
+    const expanded_lines = allocator.alloc([]const u8, input_lines.lines.len) catch return ParseError.OutOfMemory;
+    errdefer allocator.free(expanded_lines);
+
+    var expanded_count: usize = 0;
+    errdefer {
+        for (expanded_lines[0..expanded_count]) |line| allocator.free(line);
+    }
+
+    for (input_lines.lines, 0..) |line, i| {
+        expanded_lines[i] = try expandTemplate(allocator, line, case_map);
+        expanded_count += 1;
+    }
+
+    return .{
+        .line_ending = input_lines.line_ending,
+        .trailing = input_lines.trailing,
+        .lines = expanded_lines,
+    };
 }
 
 fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const spec_mod.Step {
@@ -931,11 +981,20 @@ fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) Pars
             null;
 
         // Extract input and input_lines from the case
-        const case_input = if (case_map.get("input")) |v| v.getString() else null;
-        const case_input_lines = if (case_map.get("input_lines")) |v| try parseInputLines(allocator, v) else null;
+        const case_input = if (case_map.get("input")) |v| blk: {
+            const raw = v.getString() orelse return ParseError.InvalidYaml;
+            break :blk try expandTemplate(allocator, raw, case_map);
+        } else null;
+        errdefer if (case_input) |input| allocator.free(input);
+
+        const case_input_lines = if (case_map.get("input_lines")) |v|
+            try expandInputLines(allocator, (try parseInputLines(allocator, v)) orelse return ParseError.InvalidYaml, case_map)
+        else
+            null;
 
         // Exclusive check
         if (case_input != null and case_input_lines != null) {
+            if (case_input) |input| allocator.free(input);
             if (case_input_lines) |il| il.deinit(allocator);
             return ParseError.InvalidYaml;
         }
@@ -959,7 +1018,7 @@ fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) Pars
             .test_case = .{
                 .command = expanded_command,
                 .args = expanded_args,
-                .input = if (case_input) |i| allocator.dupe(u8, i) catch return ParseError.OutOfMemory else null,
+                .input = case_input,
                 .input_lines = case_input_lines,
                 .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
                 .expect_output_contains = expect_output_contains,

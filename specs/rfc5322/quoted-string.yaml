@@ -10,7 +10,7 @@ description: |
   \\ → \, \" → ", \x → x (任意の VCHAR/WSP)
 
 vars:
-  EMAIL: ./examples/email/zig-out/bin/email
+  EMAIL: ./examples/email/zig-out/bin/email${EXEEXT}
 
 steps:
   - name: "no escapes"
