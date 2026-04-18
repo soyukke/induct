@@ -1,0 +1,163 @@
+name: RFC 4180 CSV parsing
+description: |
+  RFC 4180 "Common Format and MIME Type for Comma-Separated Values (CSV) Files"
+  Section 2: Definition of the CSV Format
+
+  CSVファイルの構文規則を定義する。以下の7つのルールから成る。
+
+  Rule 1: Each record is located on a separate line, delimited by a line break (CRLF).
+  Rule 2: The last record in the file may or may not have an ending line break.
+  Rule 3: There maybe an optional header line appearing as the first line of the file
+           with the same format as normal record lines.
+  Rule 4: Within the header and each record, there may be one or more fields,
+           separated by commas. Each line should contain the same number of fields
+           throughout the file. Spaces are considered part of a field and should not
+           be ignored.
+  Rule 5: Each field may or may not be enclosed in double quotes. If fields are not
+           enclosed with double quotes, then double quotes may not appear inside the fields.
+  Rule 6: Fields containing line breaks (CRLF), double quotes, and commas should be
+           enclosed in double-quotes.
+  Rule 7: If double-quotes are used to enclose fields, then a double-quote appearing
+           inside a field must be escaped by preceding it with another double quote.
+
+vars:
+  CSV: ./examples/csv/zig-out/bin/csv
+
+steps:
+  # ── Rule 1: Records delimited by CRLF ──
+  - name: "Rule 1: CRLF delimited records"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - 'aaa,bbb,ccc'
+        - 'zzz,yyy,xxx'
+    expect_output: "[aaa][bbb][ccc]\n[zzz][yyy][xxx]\n"
+
+  # ── Rule 2: Last record may omit trailing line break ──
+  - name: "Rule 2: trailing CRLF present"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - 'aaa,bbb'
+    expect_output: "[aaa][bbb]\n"
+
+  - name: "Rule 2: trailing CRLF absent"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      trailing: false
+      lines:
+        - 'aaa,bbb'
+    expect_output: "[aaa][bbb]\n"
+
+  # ── Rule 3: Optional header line ──
+  - name: "Rule 3: header line treated as normal record"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - 'field_name,field_name'
+        - 'aaa,bbb'
+        - 'zzz,yyy'
+    expect_output: "[field_name][field_name]\n[aaa][bbb]\n[zzz][yyy]\n"
+
+  # ── Rule 4: Comma-separated fields, spaces preserved ──
+  - name: "Rule 4: fields separated by commas"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - 'a,b,c'
+        - '1,2,3'
+    expect_output: "[a][b][c]\n[1][2][3]\n"
+
+  - name: "Rule 4: spaces are part of field"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - ' a , b ,c '
+    expect_output: "[ a ][ b ][c ]\n"
+
+  - name: "Rule 4: single field per record"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - 'only'
+    expect_output: "[only]\n"
+
+  # ── Rule 5: Fields optionally enclosed in double quotes ──
+  - name: "Rule 5: unquoted fields"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - 'aaa,bbb,ccc'
+    expect_output: "[aaa][bbb][ccc]\n"
+
+  - name: "Rule 5: quoted fields"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - '"aaa","bbb","ccc"'
+    expect_output: "[aaa][bbb][ccc]\n"
+
+  - name: "Rule 5: mixed quoted and unquoted"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - '"aaa",bbb,"ccc"'
+    expect_output: "[aaa][bbb][ccc]\n"
+
+  # ── Rule 6: Fields with special characters must be quoted ──
+  - name: "Rule 6: field containing comma"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - '"a,b",c'
+    expect_output: "[a,b][c]\n"
+
+  - name: "Rule 6: field containing CRLF"
+    command: "${CSV} parse"
+    input: "\"line1\r\nline2\",b\r\n"
+    expect_output_contains: "[line1"
+    expect_exit_code: 0
+
+  - name: "Rule 6: field containing double quote"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - '"a""b",c'
+    expect_output: "[a\"b][c]\n"
+
+  # ── Rule 7: Escaped double quotes ──
+  - name: "Rule 7: double-quote escaped as two double-quotes"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - '"""hello""",normal'
+    expect_output: "[\"hello\"][normal]\n"
+
+  - name: "Rule 7: multiple escaped quotes"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - '"a""b""c",d'
+    expect_output: "[a\"b\"c][d]\n"
+
+  - name: "Rule 7: field that is just a quote"
+    command: "${CSV} parse"
+    input_lines:
+      line_ending: crlf
+      lines:
+        - '"""",b'
+    expect_output: "[\"][b]\n"

@@ -1,0 +1,72 @@
+name: RFC 5322 date-time parsing
+description: |
+  RFC 5322 Section 3.3: Date and Time Specification
+
+  date-time = [ day-of-week "," ] date time [CFWS]
+  date      = day month year
+  time      = time-of-day zone
+  time-of-day = hour ":" minute [ ":" second ]
+
+  日時文字列を構成要素に分解する。
+  曜日は省略可能。秒は省略可能。
+  2桁年は Section 4.3 に従い 00-49 → 2000+, 50-99 → 1900+ に変換する。
+
+vars:
+  EMAIL: ./examples/email/zig-out/bin/email
+
+test_table:
+  command: "${EMAIL}"
+  args:
+    - parse-date
+    - "${date}"
+  cases:
+    - name: full date-time with day-of-week
+      date: "Thu, 13 Feb 1969 23:32:54 -0330"
+      expect_output_contains:
+        - "day-of-week: Thu"
+        - "day: 13"
+        - "month: Feb"
+        - "year: 1969"
+        - "hour: 23"
+        - "minute: 32"
+        - "second: 54"
+        - "zone: -0330"
+
+    - name: without day-of-week
+      date: "21 Nov 1997 09:55:06 -0600"
+      expect_output_contains:
+        - "day: 21"
+        - "month: Nov"
+        - "year: 1997"
+        - "hour: 09"
+        - "minute: 55"
+        - "second: 06"
+        - "zone: -0600"
+
+    - name: without seconds
+      date: "Fri, 21 Nov 1997 09:55 -0600"
+      expect_output_contains:
+        - "day-of-week: Fri"
+        - "day: 21"
+        - "hour: 09"
+        - "minute: 55"
+        - "zone: -0600"
+      expect_output_not_contains: "second:"
+
+    - name: 2-digit year (00-49 → 2000+)
+      date: "1 Jan 00 00:00 +0000"
+      expect_output_contains:
+        - "year: 2000"
+
+    - name: 2-digit year (50-99 → 1900+)
+      date: "1 Jan 99 00:00 +0000"
+      expect_output_contains:
+        - "year: 1999"
+
+    - name: single-digit day
+      date: "Mon, 1 Jan 2024 12:00:00 +0900"
+      expect_output_contains:
+        - "day: 1"
+        - "month: Jan"
+        - "year: 2024"
+        - "zone: +0900"

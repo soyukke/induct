@@ -1,0 +1,84 @@
+name: RFC 5322 obsolete syntax
+description: |
+  RFC 5322 Section 4: Obsolete Syntax
+
+  旧形式との後方互換性のための構文規則。
+  - Section 4.3: obs-year (2桁年) → 00-49は2000+, 50-99は1900+
+  - Section 4.4: obs-zone (旧タイムゾーン名: UT, GMT, EST, EDT, CST, CDT, MST, MDT, PST, PDT)
+  - Section 4.1: obs-NO-WS-CTL (制御文字の許容)
+
+  注: 完全なobsolete構文のパースは複雑だが、
+  主要なケース（2桁年、旧TZ名）をテストする。
+
+vars:
+  EMAIL: ./examples/email/zig-out/bin/email
+
+steps:
+  # ── obs-year: 2桁年の解釈 ──
+  - name: "obs-year: 00 → 2000"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 00 00:00 +0000"
+    expect_output_contains: "year: 2000"
+
+  - name: "obs-year: 49 → 2049"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 49 00:00 +0000"
+    expect_output_contains: "year: 2049"
+
+  - name: "obs-year: 50 → 1950"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 50 00:00 +0000"
+    expect_output_contains: "year: 1950"
+
+  - name: "obs-year: 99 → 1999"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 99 00:00 +0000"
+    expect_output_contains: "year: 1999"
+
+  # ── obs-zone: 旧タイムゾーン名 ──
+  # これらは数値オフセットではなく名前で表される
+  - name: "obs-zone: UT"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 UT"
+    expect_output_contains: "zone: UT"
+
+  - name: "obs-zone: GMT"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 GMT"
+    expect_output_contains: "zone: GMT"
+
+  - name: "obs-zone: EST"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 EST"
+    expect_output_contains: "zone: EST"
+
+  - name: "obs-zone: PDT"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00:00 PDT"
+    expect_output_contains: "zone: PDT"
+
+  # ── 3桁年（Section 4.3 互換） ──
+  # "If a two digit year is encountered ... three digit years ..."
+  # 3桁年は仕様上存在しないが、パーサーの堅牢性テスト
+  - name: "4-digit year passthrough"
+    command: "${EMAIL}"
+    args:
+      - parse-date
+      - "1 Jan 2024 12:00 +0000"
+    expect_output_contains: "year: 2024"

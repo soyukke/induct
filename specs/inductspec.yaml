@@ -112,6 +112,15 @@ include:
   - execution/vars-setup.yaml
   - execution/schema-vars.yaml
 
+  # Input lines
+  - execution/input-lines.yaml
+  - execution/input-lines-table.yaml
+  - execution/args.yaml
+  - execution/args-table.yaml
+
+  # RFC 4180 CSV
+  - rfc4180/parse.yaml
+
   # List contains
   - execution/list-contains.yaml
 
@@ -124,6 +133,16 @@ include:
 
   # ProjectSpec auto-detection
   - execution/projectspec-auto-detect.yaml
+
+  # RFC 5322 Email
+  - rfc5322/unfold.yaml
+  - rfc5322/comments.yaml
+  - rfc5322/quoted-string.yaml
+  - rfc5322/date.yaml
+  - rfc5322/address.yaml
+  - rfc5322/address-list.yaml
+  - rfc5322/message.yaml
+  - rfc5322/obsolete.yaml
 
   # Error handling tests
   - errors/file-not-found.yaml

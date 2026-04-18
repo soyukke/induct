@@ -9,13 +9,14 @@ Induct is an executable specification engine for AI-driven development, written 
 ## Build Commands
 
 ```bash
+nix develop            # Enter the pinned Zig 0.16.0 dev shell
 zig build              # Compile the project
 zig build run          # Run the executable
 zig build run -- [args]  # Run with arguments (e.g., zig build run -- run specs/examples/echo.yaml)
 zig build test         # Run all tests (unit tests for both root module and exe module)
 ```
 
-Requires Zig 0.15.2 or later. Output binary: `zig-out/bin/induct`
+Requires Zig 0.16.0 or later. Output binary: `zig-out/bin/induct`
 
 ### Self-Test (Regression Check)
 

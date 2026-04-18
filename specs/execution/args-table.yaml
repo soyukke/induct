@@ -1,0 +1,28 @@
+name: args in test_table
+description: |
+  test_table の args テンプレートでもケース変数が展開される。
+  shell escape は induct 側で処理する。
+  ケースごとの args 上書きも可能。
+
+test_table:
+  command: python3
+  args:
+    - -c
+    - 'import sys; print(sys.argv[1])'
+    - "${value}"
+  cases:
+    - name: "template args preserve spaces"
+      value: "alpha beta"
+      expect_output: "alpha beta\n"
+
+    - name: "template args preserve quotes"
+      value: 'say "hi"'
+      expect_output: "say \"hi\"\n"
+
+    - name: "case overrides args"
+      value: "ignored"
+      args:
+        - -c
+        - 'import sys; print(sys.argv[1])'
+        - "override"
+      expect_output: "override\n"

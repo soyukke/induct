@@ -1,0 +1,67 @@
+name: RFC 5322 address parsing
+description: |
+  RFC 5322 Section 3.4: Address Specification
+
+  address     = mailbox / group
+  mailbox     = name-addr / addr-spec
+  name-addr   = [display-name] angle-addr
+  angle-addr  = "<" addr-spec ">"
+  addr-spec   = local-part "@" domain
+  group       = display-name ":" [group-list] ";"
+
+  メールアドレスを display-name, local-part, domain に分解する。
+  グループ構文は display-name ":" で識別する。
+
+vars:
+  EMAIL: ./examples/email/zig-out/bin/email
+
+steps:
+  # ── bare addr-spec ──
+  - name: "bare addr-spec"
+    command: "${EMAIL}"
+    args:
+      - parse-address
+      - 'jdoe@example.org'
+    expect_output_contains:
+      - "local-part: jdoe"
+      - "domain: example.org"
+    expect_output_not_contains: "display-name:"
+
+  # ── name-addr with display name ──
+  - name: "name-addr with quoted display name"
+    command: "${EMAIL}"
+    args:
+      - parse-address
+      - '"Joe Q. Public" <john.q.public@example.com>'
+    expect_output_contains:
+      - "display-name: Joe Q. Public"
+      - "local-part: john.q.public"
+      - "domain: example.com"
+
+  - name: "name-addr with unquoted display name"
+    command: "${EMAIL}"
+    args:
+      - parse-address
+      - 'John Doe <jdoe@example.net>'
+    expect_output_contains:
+      - "display-name: John Doe"
+      - "local-part: jdoe"
+      - "domain: example.net"
+
+  - name: "name-addr without display name (angle-addr only)"
+    command: "${EMAIL}"
+    args:
+      - parse-address
+      - '<boss@nil.test>'
+    expect_output_contains:
+      - "local-part: boss"
+      - "domain: nil.test"
+    expect_output_not_contains: "display-name:"
+
+  # ── group syntax (requires parse-addresses, not parse-address) ──
+  - name: "group syntax"
+    command: "${EMAIL}"
+    args:
+      - parse-addresses
+      - 'A Group:ed.jones@example.com;'
+    expect_output_contains: "group: A Group"

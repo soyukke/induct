@@ -3,7 +3,28 @@ description: |
   The --dry-run flag displays what would be executed without
   actually running the commands. Output shows [DRY-RUN] prefix.
 
-test:
-  command: ./zig-out/bin/induct run specs/examples/echo.yaml --dry-run 2>&1
-  expect_output_contains: "[DRY-RUN]"
-  expect_exit_code: 0
+steps:
+  - name: single test shows command
+    command: ./zig-out/bin/induct run specs/examples/echo.yaml --dry-run 2>&1
+    expect_output_contains:
+      - "[DRY-RUN] echo test"
+      - "Command: echo hello"
+    expect_exit_code: 0
+
+  - name: steps show each command
+    command: ./zig-out/bin/induct run specs/examples/steps-example.yaml --dry-run 2>&1
+    expect_output_contains:
+      - "[DRY-RUN] steps example > step one"
+      - 'Command: echo "hello"'
+      - "[DRY-RUN] steps example > step two"
+      - 'Command: echo "world"'
+    expect_exit_code: 0
+
+  - name: args show quoted argv
+    command: ./zig-out/bin/induct run specs/execution/args.yaml --dry-run 2>&1
+    expect_output_contains:
+      - "[DRY-RUN] args field > passes exact argv items"
+      - "Command: 'python3' '-c'"
+      - "'hello world'"
+      - "'a \"quoted\" value'"
+    expect_exit_code: 0

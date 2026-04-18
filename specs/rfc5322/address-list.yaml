@@ -1,0 +1,90 @@
+name: RFC 5322 address list parsing
+description: |
+  RFC 5322 Section 3.4: Address Specification (拡張)
+
+  address-list = (address *("," address))
+  group        = display-name ":" [group-list] ";"
+
+  カンマ区切りの複数アドレス、グループ構文のメンバーリスト、
+  ドメインリテラル [IP] を含むアドレスのパース。
+
+vars:
+  EMAIL: ./examples/email/zig-out/bin/email
+
+steps:
+  # ── 複数アドレス ──
+  - name: "comma-separated addresses"
+    command: "${EMAIL} parse-addresses"
+    input_lines:
+      - 'john@a.test, jane@b.test, bob@c.test'
+    expect_output_contains:
+      - "local-part: john"
+      - "domain: a.test"
+      - "local-part: jane"
+      - "domain: b.test"
+      - "local-part: bob"
+      - "domain: c.test"
+
+  - name: "mixed name-addr and addr-spec"
+    command: "${EMAIL} parse-addresses"
+    input_lines:
+      - '"Joe" <joe@a.test>, plain@b.test, Mary <mary@c.test>'
+    expect_output_contains:
+      - "display-name: Joe"
+      - "local-part: joe"
+      - "local-part: plain"
+      - "display-name: Mary"
+      - "local-part: mary"
+
+  # ── グループ構文 + メンバー ──
+  - name: "group with members"
+    command: "${EMAIL} parse-addresses"
+    input_lines:
+      - 'Team:ed@a.test, joe@b.test;'
+    expect_output_contains:
+      - "group: Team"
+      - "local-part: ed"
+      - "domain: a.test"
+      - "local-part: joe"
+      - "domain: b.test"
+
+  - name: "group and individual mixed"
+    command: "${EMAIL} parse-addresses"
+    input_lines:
+      - 'A Group:Chris <chris@a.test>;, pete@c.test'
+    expect_output_contains:
+      - "group: A Group"
+      - "local-part: chris"
+      - "local-part: pete"
+      - "domain: c.test"
+
+  - name: "empty group"
+    command: "${EMAIL} parse-addresses"
+    input_lines:
+      - 'Undisclosed:;'
+    expect_output_contains: "group: Undisclosed"
+
+  # ── ドメインリテラル ──
+  - name: "domain literal IPv4"
+    command: "${EMAIL} parse-address"
+    input_lines:
+      - 'user@[192.168.1.1]'
+    expect_output_contains:
+      - "local-part: user"
+      - "domain: [192.168.1.1]"
+
+  - name: "domain literal IPv6"
+    command: "${EMAIL} parse-address"
+    input_lines:
+      - 'user@[IPv6:2001:db8::1]'
+    expect_output_contains:
+      - "local-part: user"
+      - "domain: [IPv6:2001:db8::1]"
+
+  - name: "quoted local part"
+    command: "${EMAIL} parse-address"
+    input_lines:
+      - '"very.unusual"@example.com'
+    expect_output_contains:
+      - 'local-part: "very.unusual"'
+      - "domain: example.com"

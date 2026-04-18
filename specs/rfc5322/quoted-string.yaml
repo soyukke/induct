@@ -1,0 +1,56 @@
+name: RFC 5322 quoted-string handling
+description: |
+  RFC 5322 Section 3.2.4: Quoted Strings
+
+  quoted-string = [CFWS] DQUOTE *([FWS] qcontent) [FWS] DQUOTE [CFWS]
+  qcontent      = qtext / quoted-pair
+  quoted-pair   = ("\" (VCHAR / WSP))
+
+  クォート文字列内のバックスラッシュエスケープを展開する。
+  \\ → \, \" → ", \x → x (任意の VCHAR/WSP)
+
+vars:
+  EMAIL: ./examples/email/zig-out/bin/email
+
+steps:
+  - name: "no escapes"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'hello world'
+    expect_output: "hello world\n"
+
+  - name: "escaped backslash"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'hello\\\\world'
+    expect_output: "hello\\world\n"
+
+  - name: "escaped quote"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'hello\\\"world'
+    expect_output: "hello\"world\n"
+
+  - name: "multiple escapes"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'a\\\\b\\\\c'
+    expect_output: "a\\b\\c\n"
+
+  - name: "escaped space"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - 'hello\\ world'
+    expect_output: "hello world\n"
+
+  - name: "empty string"
+    command: "${EMAIL}"
+    args:
+      - unescape
+      - ''
+    expect_output: "\n"

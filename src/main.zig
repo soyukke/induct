@@ -80,7 +80,7 @@ const templates = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
+    const allocator = std.heap.smp_allocator;
     const io = init.io;
     const raw_args = try init.minimal.args.toSlice(init.arena.allocator());
     const args: []const []const u8 = @ptrCast(raw_args);
@@ -290,13 +290,42 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
+fn formatDryRunCommand(allocator: std.mem.Allocator, test_case: induct.core.TestCase) ![]const u8 {
+    return test_case.formatCommand(allocator);
+}
+
+fn reportDryRunSpec(allocator: std.mem.Allocator, reporter: *induct.cli.reporter.Reporter, spec: induct.core.Spec) !void {
+    if (spec.hasSteps()) {
+        const steps = spec.steps.?;
+        for (steps, 0..) |step, idx| {
+            const step_name = try std.fmt.allocPrint(allocator, "{s} > {s}", .{ spec.name, step.name });
+            defer allocator.free(step_name);
+
+            const formatted = try formatDryRunCommand(allocator, step.test_case);
+            defer allocator.free(formatted);
+
+            reporter.reportDryRun(
+                step_name,
+                formatted,
+                idx == 0 and spec.setup != null,
+                idx == steps.len - 1 and spec.teardown != null,
+            );
+        }
+        return;
+    }
+
+    const formatted = try formatDryRunCommand(allocator, spec.test_case);
+    defer allocator.free(formatted);
+    reporter.reportDryRun(spec.name, formatted, spec.setup != null, spec.teardown != null);
+}
+
 fn handleDryRun(io: std.Io, allocator: std.mem.Allocator, spec_path: []const u8, reporter: *induct.cli.reporter.Reporter) !void {
     if (induct.core.executor.isProjectSpecFile(spec_path)) {
         var project = try induct.yaml.parser.parseProjectSpecFromFile(allocator, spec_path);
         defer project.deinit(allocator);
 
         for (project.specs) |spec| {
-            reporter.reportDryRun(spec.name, spec.test_case.command, spec.setup != null, spec.teardown != null);
+            try reportDryRunSpec(allocator, reporter, spec);
         }
         for (project.include) |include_path| {
             var stdout_buf: [4096]u8 = undefined;
@@ -308,7 +337,7 @@ fn handleDryRun(io: std.Io, allocator: std.mem.Allocator, spec_path: []const u8,
     } else {
         var spec = try induct.yaml.parser.parseSpecFromFile(allocator, spec_path);
         defer spec.deinit(allocator);
-        reporter.reportDryRun(spec.name, spec.test_case.command, spec.setup != null, spec.teardown != null);
+        try reportDryRunSpec(allocator, reporter, spec);
     }
 }
 
@@ -333,7 +362,7 @@ fn handleDryRunDir(io: std.Io, allocator: std.mem.Allocator, dir_path: []const u
             continue;
         };
         defer spec.deinit(allocator);
-        reporter.reportDryRun(spec.name, spec.test_case.command, spec.setup != null, spec.teardown != null);
+        try reportDryRunSpec(allocator, reporter, spec);
     }
 }
 

@@ -1,0 +1,7 @@
+.{
+    .name = .email,
+    .version = "0.1.0",
+    .fingerprint = 0xe7927c74ca17427d,
+    .minimum_zig_version = "0.16.0",
+    .paths = .{""},
+}

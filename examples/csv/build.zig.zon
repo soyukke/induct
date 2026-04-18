@@ -1,0 +1,7 @@
+.{
+    .name = .csv,
+    .version = "0.1.0",
+    .fingerprint = 0x8a4525740a0a8d1,
+    .minimum_zig_version = "0.16.0",
+    .paths = .{""},
+}

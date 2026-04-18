@@ -1,0 +1,28 @@
+name: input_lines in test_table
+description: |
+  test_table のケースで input_lines を使用するテスト。
+
+test_table:
+  command: cat
+  cases:
+    - name: "LF lines via test_table"
+      input_lines:
+        line_ending: lf
+        lines:
+          - 'hello'
+          - 'world'
+      expect_output: "hello\nworld\n"
+
+    - name: "CRLF lines via test_table"
+      input_lines:
+        line_ending: crlf
+        lines:
+          - 'foo'
+          - 'bar'
+      expect_output: "foo\r\nbar\r\n"
+
+    - name: "short form via test_table"
+      input_lines:
+        - 'one'
+        - 'two'
+      expect_output: "one\ntwo\n"

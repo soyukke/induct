@@ -1,6 +1,18 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+fn appendShellQuoted(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), input: []const u8) !void {
+    try list.append(allocator, '\'');
+    for (input) |c| {
+        if (c == '\'') {
+            try list.appendSlice(allocator, "'\"'\"'");
+        } else {
+            try list.append(allocator, c);
+        }
+    }
+    try list.append(allocator, '\'');
+}
+
 pub const Spec = struct {
     name: []const u8,
     description: ?[]const u8 = null,
@@ -102,6 +114,7 @@ pub const InputLines = struct {
 
 pub const TestCase = struct {
     command: []const u8 = "",
+    args: ?[]const []const u8 = null,
     input: ?[]const u8 = null,
     input_lines: ?InputLines = null,
     expect_output: ?[]const u8 = null,
@@ -121,6 +134,10 @@ pub const TestCase = struct {
 
     pub fn deinit(self: *TestCase, allocator: Allocator) void {
         allocator.free(self.command);
+        if (self.args) |args| {
+            for (args) |arg| allocator.free(arg);
+            allocator.free(args);
+        }
         if (self.input) |inp| allocator.free(inp);
         if (self.input_lines) |il| il.deinit(allocator);
         if (self.expect_output) |out| allocator.free(out);
@@ -149,6 +166,25 @@ pub const TestCase = struct {
             allocator.free(env_vars);
         }
         if (self.working_dir) |wd| allocator.free(wd);
+    }
+
+    pub fn appendRenderedCommand(self: TestCase, allocator: Allocator, list: *std.ArrayListUnmanaged(u8)) !void {
+        if (self.args) |args| {
+            try appendShellQuoted(allocator, list, self.command);
+            for (args) |arg| {
+                try list.append(allocator, ' ');
+                try appendShellQuoted(allocator, list, arg);
+            }
+            return;
+        }
+        try list.appendSlice(allocator, self.command);
+    }
+
+    pub fn formatCommand(self: TestCase, allocator: Allocator) ![]const u8 {
+        var result: std.ArrayListUnmanaged(u8) = .empty;
+        defer result.deinit(allocator);
+        try self.appendRenderedCommand(allocator, &result);
+        return try result.toOwnedSlice(allocator);
     }
 };
 
@@ -232,6 +268,7 @@ test "TestCase defaults" {
     };
 
     try std.testing.expectEqual(@as(i32, 0), tc.expect_exit_code);
+    try std.testing.expect(tc.args == null);
     try std.testing.expect(tc.input == null);
     try std.testing.expect(tc.expect_output == null);
     try std.testing.expect(tc.expect_output_contains == null);

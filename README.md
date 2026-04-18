@@ -26,7 +26,14 @@ npx @soyukke/induct help
 ```bash
 git clone https://github.com/soyukke/induct.git
 cd induct
-zig build          # Zig 0.16.0+ が必要
+nix develop        # Zig 0.16.0 を自動で揃える
+zig build
+```
+
+ワンショットで実行するなら：
+
+```bash
+nix develop -c zig build
 ```
 
 ## Quick Start
@@ -119,6 +126,8 @@ description: |                          # 推奨: 仕様の本文
 
 test:
   command: string                       # 必須: 実行コマンド
+  args:                                 # 任意: 引数配列（shell を介さず direct argv 実行）
+    - string
   input: string                         # 任意: stdin入力
   expect_output: string                 # 任意: stdout完全一致
   expect_output_contains: string        # 任意: stdout部分一致
@@ -158,6 +167,8 @@ name: string
 steps:
   - name: string                        # 必須: ステップ名
     command: string                     # 必須: 実行コマンド
+    args:                               # 任意: 引数配列（shell を介さず direct argv 実行）
+      - string
     expect_output: string               # test: と同じフィールドが使える
   - name: string
     command: string
