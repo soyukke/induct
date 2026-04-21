@@ -33,6 +33,13 @@ fn timeoutFromMilliseconds(timeout_ms: ?u64) std.Io.Timeout {
         .none;
 }
 
+fn shellArgv(command: []const u8) [3][]const u8 {
+    return switch (builtin.os.tag) {
+        .windows => .{ "bash", "-lc", command },
+        else => .{ "sh", "-c", command },
+    };
+}
+
 fn termExitCode(term: std.process.Child.Term) i32 {
     return switch (term) {
         .exited => |code| @as(i32, code),
@@ -161,7 +168,7 @@ pub fn runCommand(
     defer threaded.deinit();
     const io = threaded.io();
 
-    const argv = [_][]const u8{ "sh", "-c", command };
+    const argv = shellArgv(command);
     var child = std.process.spawn(io, .{
         .argv = &argv,
         .stdin = if (stdin_data != null) .pipe else .inherit,
@@ -238,7 +245,7 @@ test "run command with stdin" {
 }
 
 test "run command with exit code" {
-    const result = try runCommand(std.testing.allocator, "sh -c 'exit 42'", null, null);
+    const result = try runCommand(std.testing.allocator, "exit 42", null, null);
     defer {
         var r = result;
         r.deinit(std.testing.allocator);

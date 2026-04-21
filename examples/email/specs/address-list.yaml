@@ -9,12 +9,14 @@ description: |
   ドメインリテラル [IP] を含むアドレスのパース。
 
 vars:
-  EMAIL: ./examples/email/zig-out/bin/email
+  EMAIL: ./examples/email/zig-out/bin/email${EXEEXT}
 
 steps:
   # ── 複数アドレス ──
   - name: "comma-separated addresses"
-    command: "${EMAIL} parse-addresses"
+    command: "${EMAIL}"
+    args:
+      - parse-addresses
     input_lines:
       - 'john@a.test, jane@b.test, bob@c.test'
     expect_output_contains:
@@ -26,7 +28,9 @@ steps:
       - "domain: c.test"
 
   - name: "mixed name-addr and addr-spec"
-    command: "${EMAIL} parse-addresses"
+    command: "${EMAIL}"
+    args:
+      - parse-addresses
     input_lines:
       - '"Joe" <joe@a.test>, plain@b.test, Mary <mary@c.test>'
     expect_output_contains:
@@ -38,7 +42,9 @@ steps:
 
   # ── グループ構文 + メンバー ──
   - name: "group with members"
-    command: "${EMAIL} parse-addresses"
+    command: "${EMAIL}"
+    args:
+      - parse-addresses
     input_lines:
       - 'Team:ed@a.test, joe@b.test;'
     expect_output_contains:
@@ -49,7 +55,9 @@ steps:
       - "domain: b.test"
 
   - name: "group and individual mixed"
-    command: "${EMAIL} parse-addresses"
+    command: "${EMAIL}"
+    args:
+      - parse-addresses
     input_lines:
       - 'A Group:Chris <chris@a.test>;, pete@c.test'
     expect_output_contains:
@@ -59,14 +67,18 @@ steps:
       - "domain: c.test"
 
   - name: "empty group"
-    command: "${EMAIL} parse-addresses"
+    command: "${EMAIL}"
+    args:
+      - parse-addresses
     input_lines:
       - 'Undisclosed:;'
     expect_output_contains: "group: Undisclosed"
 
   # ── ドメインリテラル ──
   - name: "domain literal IPv4"
-    command: "${EMAIL} parse-address"
+    command: "${EMAIL}"
+    args:
+      - parse-address
     input_lines:
       - 'user@[192.168.1.1]'
     expect_output_contains:
@@ -74,7 +86,9 @@ steps:
       - "domain: [192.168.1.1]"
 
   - name: "domain literal IPv6"
-    command: "${EMAIL} parse-address"
+    command: "${EMAIL}"
+    args:
+      - parse-address
     input_lines:
       - 'user@[IPv6:2001:db8::1]'
     expect_output_contains:
@@ -82,7 +96,9 @@ steps:
       - "domain: [IPv6:2001:db8::1]"
 
   - name: "quoted local part"
-    command: "${EMAIL} parse-address"
+    command: "${EMAIL}"
+    args:
+      - parse-address
     input_lines:
       - '"very.unusual"@example.com'
     expect_output_contains:

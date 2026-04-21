@@ -4,8 +4,13 @@ description: |
   Base64 encoder は入力バイト列をBase64アルファベットで符号化する。
   パディング(=)は必須。改行は付与しない。
 
+vars:
+  BASE64: ./examples/base64/zig-out/bin/base64${EXEEXT}
+
 test_table:
-  command: "printf '${input}' | ./examples/base64/zig-out/bin/base64 encode"
+  command: "${BASE64}"
+  args:
+    - encode
   cases:
     - input: ""
       expect_output: ""

@@ -8,6 +8,7 @@ const SpecResult = result_mod.SpecResult;
 const SpecStatus = result_mod.SpecStatus;
 const GenerateInfo = result_mod.GenerateInfo;
 const validator = @import("validator.zig");
+const regex = @import("regex.zig");
 const runner = @import("../process/runner.zig");
 const parser = @import("../yaml/parser.zig");
 const path_extractor = @import("path_extractor.zig");
@@ -68,18 +69,11 @@ fn buildFullCommand(allocator: Allocator, command: []const u8, test_case: spec_m
     return try parts.toOwnedSlice(allocator);
 }
 
-/// Validate output against a regex pattern using grep -qE
 fn matchRegex(allocator: Allocator, text: []const u8, pattern: []const u8) !bool {
-    var escaped: std.ArrayListUnmanaged(u8) = .empty;
-    defer escaped.deinit(allocator);
-    try appendShellEscaped(allocator, &escaped, pattern);
-
-    const cmd = try std.fmt.allocPrint(allocator, "grep -qE '{s}'", .{escaped.items});
-    defer allocator.free(cmd);
-
-    var result = runner.runCommand(allocator, cmd, text, null) catch return false;
-    defer result.deinit(allocator);
-    return result.exit_code == 0;
+    return regex.matchesPattern(allocator, pattern, text) catch |err| switch (err) {
+        error.InvalidPattern => false,
+        error.OutOfMemory => err,
+    };
 }
 
 pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !SpecResult {
@@ -249,7 +243,7 @@ pub fn executeSpec(allocator: Allocator, spec: Spec, default_timeout_ms: ?u64) !
                 }
             }
 
-            // Regex validation (requires shelling out to grep)
+            // Regex validation
             if (passed) {
                 if (spec.test_case.expect_output_regex) |pattern| {
                     const regex_match = try matchRegex(allocator, proc_result.stdout, pattern);

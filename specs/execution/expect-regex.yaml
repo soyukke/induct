@@ -1,8 +1,8 @@
-name: expect_output_regex matches with POSIX ERE
+name: expect_output_regex matches with built-in regex
 description: |
-  expect_output_regex validates command output against a POSIX Extended
-  Regular Expression pattern using grep -qE. Supports patterns like
-  [0-9]+, .*, character classes, etc.
+  expect_output_regex validates command output against the built-in
+  regex matcher. Supports common syntax like [0-9]+, .*, and
+  character classes.
 
 setup:
   - run: printf 'name: regex pass\ntest:\n  command: echo "version 1.2.3"\n  expect_output_regex: "version [0-9]+"\n' > /tmp/induct-regex-test.yaml

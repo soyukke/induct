@@ -118,8 +118,10 @@ include:
   - execution/args.yaml
   - execution/args-table.yaml
 
-  # RFC 4180 CSV
-  - rfc4180/parse.yaml
+  # RFC examples (co-located entry points under examples/*)
+  - ../examples/csv/inductspec.yaml
+  - ../examples/uri/inductspec.yaml
+  - ../examples/base64/inductspec.yaml
 
   # List contains
   - execution/list-contains.yaml
@@ -135,14 +137,7 @@ include:
   - execution/projectspec-auto-detect.yaml
 
   # RFC 5322 Email
-  - rfc5322/unfold.yaml
-  - rfc5322/comments.yaml
-  - rfc5322/quoted-string.yaml
-  - rfc5322/date.yaml
-  - rfc5322/address.yaml
-  - rfc5322/address-list.yaml
-  - rfc5322/message.yaml
-  - rfc5322/obsolete.yaml
+  - ../examples/email/inductspec.yaml
 
   # Error handling tests
   - errors/file-not-found.yaml

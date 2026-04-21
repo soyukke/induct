@@ -13,7 +13,7 @@ description: |
   グループ構文は display-name ":" で識別する。
 
 vars:
-  EMAIL: ./examples/email/zig-out/bin/email
+  EMAIL: ./examples/email/zig-out/bin/email${EXEEXT}
 
 steps:
   # ── bare addr-spec ──

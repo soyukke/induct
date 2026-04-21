@@ -5,7 +5,7 @@ description: |
   ケースごとの args 上書きも可能。
 
 test_table:
-  command: python3
+  command: python
   args:
     - -c
     - 'import sys; print(sys.argv[1])'

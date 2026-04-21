@@ -91,7 +91,7 @@ name: spec name
 description: optional description
 
 vars:                                     # Optional: template variables
-  BIN: ./my-tool                          #   Expanded as ${BIN} in commands
+  BIN: ./my-tool${EXEEXT}                 #   ${EXEEXT}: "" on Unix, ".exe" on Windows
 
 setup:                                    # Optional pre-test commands
   - run: echo "setup"
@@ -102,10 +102,10 @@ test:
   expect_output: "hello\n"               # Optional: exact output match
   expect_output_contains: "llo"          # Optional: substring match
   expect_output_not_contains: "error"    # Optional: negative substring match
-  expect_output_regex: "hel+"            # Optional: regex match (POSIX ERE)
+  expect_output_regex: "hel+"            # Optional: regex match
   expect_stderr: "warn\n"               # Optional: exact stderr match
   expect_stderr_contains: "warn"         # Optional: stderr substring match
-  expect_stderr_regex: "warn.*"          # Optional: stderr regex (POSIX ERE)
+  expect_stderr_regex: "warn.*"          # Optional: stderr regex
   expect_exit_code: 0                    # Optional: expected exit code (default: 0)
   env:                                   # Optional: environment variables
     KEY: value
@@ -137,7 +137,9 @@ Steps execute sequentially. If one fails, remaining steps are skipped.
 ```yaml
 name: RFC 4648 Base64 encoding
 test_table:
-  command: "printf '${input}' | ./base64 encode"
+  command: ./base64${EXEEXT}
+  args:
+    - encode
   cases:
     - input: f
       expect_output: "Zg=="
@@ -147,7 +149,7 @@ test_table:
       expect_exit_code: 1
 ```
 
-`${var}` in command is replaced per case. Each case can use any `expect_*` assertion. Expanded to steps internally.
+`${var}` in command/args/input_lines is replaced per case. `${EXEEXT}` is built in and expands to `""` on Unix, `".exe"` on Windows. Each case can use any `expect_*` assertion. Expanded to steps internally.
 
 ### ProjectSpec Auto-Detection
 

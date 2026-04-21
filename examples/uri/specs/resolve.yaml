@@ -4,11 +4,15 @@ description: |
   Base URI: http://a/b/c/d;p?q
 
 vars:
-  URI: ./examples/uri/zig-out/bin/uri
+  URI: ./examples/uri/zig-out/bin/uri${EXEEXT}
   BASE: "http://a/b/c/d;p?q"
 
 test_table:
-  command: "${URI} resolve '${BASE}' '${ref}'"
+  command: "${URI}"
+  args:
+    - resolve
+    - "${BASE}"
+    - "${ref}"
   cases:
     - name: "g:h"
       ref: "g:h"

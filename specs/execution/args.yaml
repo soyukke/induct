@@ -5,7 +5,7 @@ description: |
   args を使う test は shell を介さず直接実行される。
 
 vars:
-  PYTHON: python3
+  PYTHON: python
   VALUE: value with spaces
 
 steps:
@@ -40,5 +40,5 @@ steps:
     args:
       - -c
       - 'import os; print(os.path.basename(os.getcwd()))'
-    working_dir: specs/rfc5322
-    expect_output: "rfc5322\n"
+    working_dir: examples/email
+    expect_output: "email\n"

@@ -3,14 +3,19 @@ description: |
   RFC 4648 Section 3.3: 実装はBase64アルファベット外の文字を含む
   入力を拒否しなければならない(MUST reject)。
 
+vars:
+  BASE64: ./examples/base64/zig-out/bin/base64${EXEEXT}
+
 test_table:
-  command: "printf '${encoded}' | ./examples/base64/zig-out/bin/base64 decode"
+  command: "${BASE64}"
+  args:
+    - decode
   cases:
     - name: reject invalid character
-      encoded: "!invalid!"
+      input: "!invalid!"
       expect_exit_code: 1
       expect_stderr_contains: "invalid"
     - name: reject truncated padding
-      encoded: "Zg="
+      input: "Zg="
       expect_exit_code: 1
       expect_stderr_contains: "invalid"

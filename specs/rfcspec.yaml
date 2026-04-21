@@ -1,0 +1,8 @@
+name: RFC example suite
+description: Cross-platform execution of all RFC example specs.
+
+include:
+  - ../examples/uri/inductspec.yaml
+  - ../examples/csv/inductspec.yaml
+  - ../examples/base64/inductspec.yaml
+  - ../examples/email/inductspec.yaml

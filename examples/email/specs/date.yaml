@@ -12,7 +12,7 @@ description: |
   2桁年は Section 4.3 に従い 00-49 → 2000+, 50-99 → 1900+ に変換する。
 
 vars:
-  EMAIL: ./examples/email/zig-out/bin/email
+  EMAIL: ./examples/email/zig-out/bin/email${EXEEXT}
 
 test_table:
   command: "${EMAIL}"

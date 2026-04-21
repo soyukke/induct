@@ -1,7 +1,7 @@
 name: expect_stderr_regex validates stderr with regex
 description: |
-  expect_stderr_regex allows matching stderr output against a POSIX
-  Extended Regular Expression, mirroring expect_output_regex for stdout.
+  expect_stderr_regex allows matching stderr output against the built-in
+  regex matcher, mirroring expect_output_regex for stdout.
 test:
   command: echo "error: file not found at line 42" >&2
   expect_stderr_regex: "error:.*line [0-9]+"

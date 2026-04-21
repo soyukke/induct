@@ -1,0 +1,12 @@
+name: Email example specs
+description: RFC 5322 specs for examples/email implementation.
+
+include:
+  - specs/unfold.yaml
+  - specs/comments.yaml
+  - specs/quoted-string.yaml
+  - specs/date.yaml
+  - specs/address.yaml
+  - specs/address-list.yaml
+  - specs/message.yaml
+  - specs/obsolete.yaml
