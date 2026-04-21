@@ -3,7 +3,7 @@ description: |
   induct list を単体specファイルに対して実行すると、
   name と description が表示される。
 test:
-  command: ./zig-out/bin/induct list specs/rfc4648/encode.yaml
+  command: ./zig-out/bin/induct list examples/base64/specs/encode.yaml
   expect_output_contains:
     - "RFC 4648 Base64 encoding"
     - "Base64 encoder"

@@ -1,0 +1,7 @@
+name: Base64 example specs
+description: RFC 4648 specs for examples/base64 implementation.
+
+include:
+  - specs/encode.yaml
+  - specs/decode.yaml
+  - specs/invalid.yaml

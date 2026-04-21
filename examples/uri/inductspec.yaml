@@ -1,0 +1,6 @@
+name: URI example specs
+description: RFC 3986 specs for examples/uri implementation.
+
+include:
+  - specs/parse.yaml
+  - specs/resolve.yaml

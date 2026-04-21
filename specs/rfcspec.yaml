@@ -2,17 +2,7 @@ name: RFC example suite
 description: Cross-platform execution of all RFC example specs.
 
 include:
-  - rfc3986/parse.yaml
-  - rfc3986/resolve.yaml
-  - rfc4180/parse.yaml
-  - rfc4648/encode.yaml
-  - rfc4648/decode.yaml
-  - rfc4648/invalid.yaml
-  - rfc5322/unfold.yaml
-  - rfc5322/comments.yaml
-  - rfc5322/quoted-string.yaml
-  - rfc5322/date.yaml
-  - rfc5322/address.yaml
-  - rfc5322/address-list.yaml
-  - rfc5322/message.yaml
-  - rfc5322/obsolete.yaml
+  - ../examples/uri/inductspec.yaml
+  - ../examples/csv/inductspec.yaml
+  - ../examples/base64/inductspec.yaml
+  - ../examples/email/inductspec.yaml

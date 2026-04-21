@@ -40,5 +40,5 @@ steps:
     args:
       - -c
       - 'import os; print(os.path.basename(os.getcwd()))'
-    working_dir: specs/rfc5322
-    expect_output: "rfc5322\n"
+    working_dir: examples/email
+    expect_output: "email\n"

@@ -2,6 +2,6 @@ name: RFC 4648 test suite
 description: All RFC 4648 Base64 specs
 
 include:
-  - ../rfc4648/encode.yaml
-  - ../rfc4648/decode.yaml
-  - ../rfc4648/invalid.yaml
+  - ../../examples/base64/specs/encode.yaml
+  - ../../examples/base64/specs/decode.yaml
+  - ../../examples/base64/specs/invalid.yaml

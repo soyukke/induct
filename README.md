@@ -202,6 +202,17 @@ include:                                # 外部ファイルを参照
 
 `induct run inductspec.yaml` で全仕様を一括実行。
 
+### RFC Example Layout
+
+RFCサンプルは、実装と仕様を `examples/*` 配下で近接配置している。
+
+- URI (RFC 3986): `examples/uri/src/main.zig` + `examples/uri/specs/*.yaml`
+- CSV (RFC 4180): `examples/csv/src/main.zig` + `examples/csv/specs/*.yaml`
+- Base64 (RFC 4648): `examples/base64/src/main.zig` + `examples/base64/specs/*.yaml`
+- Email (RFC 5322): `examples/email/src/main.zig` + `examples/email/specs/*.yaml`
+
+各 example には `examples/<name>/inductspec.yaml` があり、単体で実行できる。
+
 ## 使用例
 
 ### コマンド出力の検証

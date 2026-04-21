@@ -1,0 +1,5 @@
+name: CSV example specs
+description: RFC 4180 specs for examples/csv implementation.
+
+include:
+  - specs/parse.yaml
