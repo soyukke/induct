@@ -1,6 +1,6 @@
 {
   "name": "@soyukke/induct",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Executable specification engine for AI-driven development",
   "license": "MIT",
   "repository": {
@@ -14,11 +14,11 @@
     "bin"
   ],
   "optionalDependencies": {
-    "@soyukke/induct-darwin-arm64": "0.2.1",
-    "@soyukke/induct-darwin-x64": "0.2.1",
-    "@soyukke/induct-linux-arm64": "0.2.1",
-    "@soyukke/induct-linux-x64": "0.2.1",
-    "@soyukke/induct-win32-x64": "0.2.1"
+    "@soyukke/induct-darwin-arm64": "0.2.2",
+    "@soyukke/induct-darwin-x64": "0.2.2",
+    "@soyukke/induct-linux-arm64": "0.2.2",
+    "@soyukke/induct-linux-x64": "0.2.2",
+    "@soyukke/induct-win32-x64": "0.2.2"
   },
   "keywords": [
     "specification",
