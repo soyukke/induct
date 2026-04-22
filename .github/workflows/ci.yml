@@ -20,6 +20,9 @@ jobs:
       - name: Format check
         run: zig fmt --check src/
 
+      - name: Tiger style lint check
+        run: zig run scripts/check_style.zig -- --root src --strict
+
   portable:
     strategy:
       matrix:

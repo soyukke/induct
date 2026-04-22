@@ -50,7 +50,12 @@ pub const Reporter = struct {
         var writer = self.getWriter();
         const w = &writer.interface;
 
-        const status_str = if (result.status == .skipped) "[SKIP]" else if (result.passed) "[PASS]" else "[FAIL]";
+        const status_str = if (result.status == .skipped)
+            "[SKIP]"
+        else if (result.passed)
+            "[PASS]"
+        else
+            "[FAIL]";
 
         w.print("{s} {s} ({d}ms)\n", .{
             status_str,
@@ -166,7 +171,10 @@ pub const Reporter = struct {
                         w.print("  - {s}", .{r.spec_name}) catch {};
                         if (r.error_message) |msg| {
                             // Show first line of error only
-                            const first_line = if (std.mem.indexOf(u8, msg, "\n")) |nl| msg[0..nl] else msg;
+                            const first_line = if (std.mem.indexOf(u8, msg, "\n")) |nl|
+                                msg[0..nl]
+                            else
+                                msg;
                             w.print(": {s}", .{first_line}) catch {};
                         }
                         w.print("\n", .{}) catch {};
@@ -237,7 +245,13 @@ pub const Reporter = struct {
         w.flush() catch {};
     }
 
-    pub fn reportDryRun(self: *Self, spec_name: []const u8, command: []const u8, has_setup: bool, has_teardown: bool) void {
+    pub fn reportDryRun(
+        self: *Self,
+        spec_name: []const u8,
+        command: []const u8,
+        has_setup: bool,
+        has_teardown: bool,
+    ) void {
         var writer = self.getWriter();
         const w = &writer.interface;
 
@@ -293,185 +307,187 @@ pub fn printHelp(writer: anytype) void {
     , .{}) catch {};
 }
 
+const schema_text =
+    \\# Induct Spec Schema
+    \\
+    \\## Single Spec (*.yaml)
+    \\
+    \\```yaml
+    \\name: string                            # Required: spec name (title)
+    \\description: |                          # Recommended: the specification itself
+    \\  Describe WHAT the system should do.   #   This is the human-readable spec.
+    \\  name is the title, description is     #   Shown by `induct list`.
+    \\  the body. test: section verifies it.
+    \\
+    \\vars:                                    # Optional: template variables
+    \\  BIN: ./my-tool${{EXEEXT}}              #   ${{EXEEXT}}: "" on Unix, ".exe" on Windows
+    \\
+    \\setup:                                  # Optional: pre-test commands
+    \\  - run: echo "setup"
+    \\
+    \\test:                                   # Required: test definition
+    \\  command: ${{BIN}}                         # Required: command or executable path
+    \\  args:                                    # Optional: argv items
+    \\    - hello
+    \\  input: "stdin data"                    # Optional: stdin input
+    \\  input_lines:                           # Optional: stdin as lines (exclusive with input)
+    \\    line_ending: lf                      #   "lf" (default) or "crlf"
+    \\    trailing: true                       #   append ending to last line (default: true)
+    \\    lines:                               #   list of lines
+    \\      - 'line 1'
+    \\      - 'line 2'
+    \\  expect_output: "hello\n"               # Optional: exact stdout match
+    \\  expect_output_contains: "llo"          # Optional: stdout substring match
+    \\  expect_output_not_contains: "err"      # Optional: stdout negative match
+    \\  expect_output_regex: "hel+"            # Optional: stdout regex
+    \\  expect_stderr: "warn\n"                # Optional: exact stderr match
+    \\  expect_stderr_contains: "warn"         # Optional: stderr substring match
+    \\  expect_stderr_not_contains: "FATAL"    # Optional: stderr negative match
+    \\  expect_stderr_regex: "warn.*"           # Optional: stderr regex
+    \\  expect_exit_code: 0                    # Optional: exit code (default: 0)
+    \\  env:                                   # Optional: environment variables
+    \\    KEY: value
+    \\  working_dir: /path/to/dir              # Optional: working directory
+    \\  timeout_ms: 5000                       # Optional: timeout in milliseconds
+    \\
+    \\teardown:                                # Optional: cleanup commands
+    \\  - run: rm -f /tmp/test.txt
+    \\  - kill_process: server
+    \\```
+    \\
+    \\## Multi-Step Spec
+    \\
+    \\```yaml
+    \\name: string                            # Required: spec name
+    \\description: string                     # Recommended: specification
+    \\
+    \\setup:                                  # Optional: pre-test commands (run once)
+    \\  - run: echo "setup"
+    \\
+    \\steps:                                  # Sequential steps (replaces test:)
+    \\  - name: step one                      # Required: step name
+    \\    command: echo hello                  # Required: command
+    \\    args:                                # Optional: argv items; executed directly
+    \\      - hello
+    \\    expect_output: "hello\n"             # Same fields as test:
+    \\
+    \\  - name: step two
+    \\    command: echo world
+    \\    expect_output_contains: "world"
+    \\
+    \\teardown:                               # Optional: cleanup (run once, always)
+    \\  - run: echo "cleanup"
+    \\```
+    \\
+    \\- Steps execute sequentially
+    \\- If a step fails, remaining steps are skipped
+    \\- setup runs once before all steps, teardown runs once after
+    \\- `steps:` and `test:` are mutually exclusive
+    \\
+    \\## Table-Driven Spec
+    \\
+    \\```yaml
+    \\name: string                            # Required: spec name
+    \\description: string                     # Recommended: specification
+    \\
+    \\test_table:                             # Table-driven tests (replaces test:/steps:)
+    \\  command: ./base64${{EXEEXT}}            # Required: command template with ${{var}}
+    \\  args:                                   # Optional: args template; executed directly
+    \\    - encode
+    \\  cases:                                # Required: list of test cases
+    \\    - input: f                          #   input/input_lines/expect_* are reserved keys
+    \\      expect_output: "Zg=="             #   Assertions (any expect_* field)
+    \\    - input: foo
+    \\      expect_output_contains: "m9"      # Each case can use different assertions
+    \\    - name: invalid input               # Optional: explicit case name
+    \\      input: "!!"
+    \\      expect_exit_code: 1               # exit_code, stderr, regex all supported
+    \\```
+    \\
+    \\- `${{var}}` in command/args/input_lines is replaced with the case's variable value
+    \\- Built-in `${{EXEEXT}}` expands to `""` on Unix and `".exe"` on Windows
+    \\- Case names auto-generated from variable values if not specified
+    \\- Expanded to steps internally; setup/teardown work as normal
+    \\- `test_table:`, `test:`, and `steps:` are mutually exclusive
+    \\
+    \\## Project Spec (inductspec.yaml)
+    \\
+    \\```yaml
+    \\name: project name                      # Required: project name
+    \\description: string                     # Optional: description
+    \\
+    \\specs:                                  # Optional: inline spec definitions
+    \\  - name: test1
+    \\    test:
+    \\      command: echo hello
+    \\      expect_output_contains: "hello"
+    \\
+    \\include:                                # Optional: external spec files
+    \\  - specs/auth.yaml
+    \\  - specs/api.yaml
+    \\```
+    \\
+    \\## Validation Rules
+    \\
+    \\- `name` and `test.command` are required fields
+    \\- `expect_exit_code` defaults to 0 if not specified
+    \\- Multiple expect_* fields can be combined (all must pass)
+    \\- `expect_output_regex` supports common regex syntax: `^ $ . * + ? [] () |`
+    \\- `timeout_ms` kills the process if exceeded
+    \\- `setup` commands run before the test (fail = test skipped)
+    \\- `teardown` commands always run (even on test failure)
+    \\
+    \\## Writing Good Specs
+    \\
+    \\A spec has two parts: the specification (name + description)
+    \\and the verification (test/steps). Write description as if
+    \\explaining the requirement to a colleague:
+    \\
+    \\```yaml
+    \\name: User creation API
+    \\description: |
+    \\  POST /users with a name returns a new user with an assigned ID.
+    \\  The response must contain an "id" field.
+    \\
+    \\test:
+    \\  command: curl -s -X POST localhost:8080/users -d '{{"name":"alice"}}'
+    \\  expect_output_contains: '"id":'
+    \\```
+    \\
+    \\Use `induct list <dir>` to view all specs as a specification index.
+    \\
+    \\## Workflow
+    \\
+    \\1. Run `induct schema` to learn the spec format (this output)
+    \\2. Write a spec: name = what, description = why, test = verification
+    \\3. Run `induct validate <spec.yaml>` to check syntax
+    \\4. Run `induct run <spec.yaml>` to verify (expect FAIL)
+    \\5. Implement until the spec passes
+    \\6. Run `induct run <spec.yaml>` again (expect PASS)
+    \\7. Run `induct list <dir>` to review the spec index
+    \\
+    \\Example:
+    \\```bash
+    \\cat > specs/hello.yaml << 'EOF'
+    \\name: hello command
+    \\description: |
+    \\  ./hello prints "Hello, World!" to stdout and exits successfully.
+    \\test:
+    \\  command: ./hello
+    \\  expect_output: "Hello, World!\n"
+    \\EOF
+    \\
+    \\induct validate specs/hello.yaml
+    \\induct run specs/hello.yaml          # FAIL - not yet implemented
+    \\# ... implement ./hello ...
+    \\induct run specs/hello.yaml          # PASS
+    \\induct list specs/                   # review spec index
+    \\```
+    \\
+;
+
 pub fn printSchema(writer: anytype) void {
-    writer.print(
-        \\# Induct Spec Schema
-        \\
-        \\## Single Spec (*.yaml)
-        \\
-        \\```yaml
-        \\name: string                            # Required: spec name (title)
-        \\description: |                          # Recommended: the specification itself
-        \\  Describe WHAT the system should do.   #   This is the human-readable spec.
-        \\  name is the title, description is     #   Shown by `induct list`.
-        \\  the body. test: section verifies it.
-        \\
-        \\vars:                                    # Optional: template variables
-        \\  BIN: ./my-tool${{EXEEXT}}              #   ${{EXEEXT}}: "" on Unix, ".exe" on Windows
-        \\
-        \\setup:                                  # Optional: pre-test commands
-        \\  - run: echo "setup"
-        \\
-        \\test:                                   # Required: test definition
-        \\  command: ${{BIN}}                         # Required: command or executable path
-        \\  args:                                    # Optional: argv items; executed directly without shell
-        \\    - hello
-        \\  input: "stdin data"                    # Optional: stdin input
-        \\  input_lines:                           # Optional: stdin as lines (exclusive with input)
-        \\    line_ending: lf                      #   "lf" (default) or "crlf"
-        \\    trailing: true                       #   append line_ending to last line (default: true)
-        \\    lines:                               #   list of lines
-        \\      - 'line 1'
-        \\      - 'line 2'
-        \\  expect_output: "hello\n"               # Optional: exact stdout match
-        \\  expect_output_contains: "llo"          # Optional: stdout substring match
-        \\  expect_output_not_contains: "err"      # Optional: stdout negative match
-        \\  expect_output_regex: "hel+"            # Optional: stdout regex
-        \\  expect_stderr: "warn\n"                # Optional: exact stderr match
-        \\  expect_stderr_contains: "warn"         # Optional: stderr substring match
-        \\  expect_stderr_not_contains: "FATAL"    # Optional: stderr negative match
-        \\  expect_stderr_regex: "warn.*"           # Optional: stderr regex
-        \\  expect_exit_code: 0                    # Optional: exit code (default: 0)
-        \\  env:                                   # Optional: environment variables
-        \\    KEY: value
-        \\  working_dir: /path/to/dir              # Optional: working directory
-        \\  timeout_ms: 5000                       # Optional: timeout in milliseconds
-        \\
-        \\teardown:                                # Optional: cleanup commands
-        \\  - run: rm -f /tmp/test.txt
-        \\  - kill_process: server
-        \\```
-        \\
-        \\## Multi-Step Spec
-        \\
-        \\```yaml
-        \\name: string                            # Required: spec name
-        \\description: string                     # Recommended: specification
-        \\
-        \\setup:                                  # Optional: pre-test commands (run once)
-        \\  - run: echo "setup"
-        \\
-        \\steps:                                  # Sequential steps (replaces test:)
-        \\  - name: step one                      # Required: step name
-        \\    command: echo hello                  # Required: command
-        \\    args:                                # Optional: argv items; executed directly
-        \\      - hello
-        \\    expect_output: "hello\n"             # Same fields as test:
-        \\
-        \\  - name: step two
-        \\    command: echo world
-        \\    expect_output_contains: "world"
-        \\
-        \\teardown:                               # Optional: cleanup (run once, always)
-        \\  - run: echo "cleanup"
-        \\```
-        \\
-        \\- Steps execute sequentially
-        \\- If a step fails, remaining steps are skipped
-        \\- setup runs once before all steps, teardown runs once after
-        \\- `steps:` and `test:` are mutually exclusive
-        \\
-        \\## Table-Driven Spec
-        \\
-        \\```yaml
-        \\name: string                            # Required: spec name
-        \\description: string                     # Recommended: specification
-        \\
-        \\test_table:                             # Table-driven tests (replaces test:/steps:)
-        \\  command: ./base64${{EXEEXT}}            # Required: command template with ${{var}}
-        \\  args:                                   # Optional: args template; executed directly
-        \\    - encode
-        \\  cases:                                # Required: list of test cases
-        \\    - input: f                          #   input/input_lines/expect_* are reserved keys
-        \\      expect_output: "Zg=="             #   Assertions (any expect_* field)
-        \\    - input: foo
-        \\      expect_output_contains: "m9"      # Each case can use different assertions
-        \\    - name: invalid input               # Optional: explicit case name
-        \\      input: "!!"
-        \\      expect_exit_code: 1               # exit_code, stderr, regex all supported
-        \\```
-        \\
-        \\- `${{var}}` in command/args/input_lines is replaced with the case's variable value
-        \\- Built-in `${{EXEEXT}}` expands to `""` on Unix and `".exe"` on Windows
-        \\- Case names auto-generated from variable values if not specified
-        \\- Expanded to steps internally; setup/teardown work as normal
-        \\- `test_table:`, `test:`, and `steps:` are mutually exclusive
-        \\
-        \\## Project Spec (inductspec.yaml)
-        \\
-        \\```yaml
-        \\name: project name                      # Required: project name
-        \\description: string                     # Optional: description
-        \\
-        \\specs:                                  # Optional: inline spec definitions
-        \\  - name: test1
-        \\    test:
-        \\      command: echo hello
-        \\      expect_output_contains: "hello"
-        \\
-        \\include:                                # Optional: external spec files
-        \\  - specs/auth.yaml
-        \\  - specs/api.yaml
-        \\```
-        \\
-        \\## Validation Rules
-        \\
-        \\- `name` and `test.command` are required fields
-        \\- `expect_exit_code` defaults to 0 if not specified
-        \\- Multiple expect_* fields can be combined (all must pass)
-        \\- `expect_output_regex` supports common regex syntax: `^ $ . * + ? [] () |`
-        \\- `timeout_ms` kills the process if exceeded
-        \\- `setup` commands run before the test (fail = test skipped)
-        \\- `teardown` commands always run (even on test failure)
-        \\
-        \\## Writing Good Specs
-        \\
-        \\A spec has two parts: the specification (name + description)
-        \\and the verification (test/steps). Write description as if
-        \\explaining the requirement to a colleague:
-        \\
-        \\```yaml
-        \\name: User creation API
-        \\description: |
-        \\  POST /users with a name returns a new user with an assigned ID.
-        \\  The response must contain an "id" field.
-        \\
-        \\test:
-        \\  command: curl -s -X POST localhost:8080/users -d '{{"name":"alice"}}'
-        \\  expect_output_contains: '"id":'
-        \\```
-        \\
-        \\Use `induct list <dir>` to view all specs as a specification index.
-        \\
-        \\## Workflow
-        \\
-        \\1. Run `induct schema` to learn the spec format (this output)
-        \\2. Write a spec: name = what, description = why, test = verification
-        \\3. Run `induct validate <spec.yaml>` to check syntax
-        \\4. Run `induct run <spec.yaml>` to verify (expect FAIL)
-        \\5. Implement until the spec passes
-        \\6. Run `induct run <spec.yaml>` again (expect PASS)
-        \\7. Run `induct list <dir>` to review the spec index
-        \\
-        \\Example:
-        \\```bash
-        \\cat > specs/hello.yaml << 'EOF'
-        \\name: hello command
-        \\description: |
-        \\  ./hello prints "Hello, World!" to stdout and exits successfully.
-        \\test:
-        \\  command: ./hello
-        \\  expect_output: "Hello, World!\n"
-        \\EOF
-        \\
-        \\induct validate specs/hello.yaml
-        \\induct run specs/hello.yaml          # FAIL - not yet implemented
-        \\# ... implement ./hello ...
-        \\induct run specs/hello.yaml          # PASS
-        \\induct list specs/                   # review spec index
-        \\```
-        \\
-    , .{}) catch {};
+    writer.print("{s}", .{schema_text}) catch {};
 }
 
 pub const version = std.mem.trimEnd(u8, @embedFile("../VERSION"), &.{ '\n', '\r', ' ' });

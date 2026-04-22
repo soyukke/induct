@@ -93,7 +93,37 @@ fn collectChildResult(
     const start_time = std.Io.Clock.awake.now(io);
     defer if (child.id != null) child.kill(io);
 
-    // Write stdin if provided
+    writeChildStdin(io, child, stdin_data);
+    const collected = try collectChildOutput(allocator, io, child, timeout_ms);
+    errdefer {
+        allocator.free(collected.stdout);
+        allocator.free(collected.stderr);
+    }
+    const final_stdout = if (collected.stdout.len > 0)
+        collected.stdout
+    else blk: {
+        allocator.free(collected.stdout);
+        break :blk allocator.dupe(u8, "") catch return RunError.OutOfMemory;
+    };
+    const final_stderr = if (collected.stderr.len > 0)
+        collected.stderr
+    else blk: {
+        allocator.free(collected.stderr);
+        break :blk allocator.dupe(u8, "") catch return RunError.OutOfMemory;
+    };
+
+    const end_time = std.Io.Clock.awake.now(io);
+
+    return ProcessResult{
+        .stdout = final_stdout,
+        .stderr = final_stderr,
+        .exit_code = collected.exit_code,
+        .duration_ns = @intCast(start_time.durationTo(end_time).toNanoseconds()),
+        .timed_out = collected.timed_out,
+    };
+}
+
+fn writeChildStdin(io: std.Io, child: *std.process.Child, stdin_data: ?[]const u8) void {
     if (stdin_data) |data| {
         if (child.stdin) |stdin| {
             stdin.writeStreamingAll(io, data) catch {};
@@ -101,10 +131,29 @@ fn collectChildResult(
             child.stdin = null;
         }
     }
+}
 
+const ChildOutput = struct {
+    stdout: []const u8,
+    stderr: []const u8,
+    exit_code: i32,
+    timed_out: bool,
+};
+
+fn collectChildOutput(
+    allocator: Allocator,
+    io: std.Io,
+    child: *std.process.Child,
+    timeout_ms: ?u64,
+) !ChildOutput {
     var multi_reader_buffer: std.Io.File.MultiReader.Buffer(2) = undefined;
     var multi_reader: std.Io.File.MultiReader = undefined;
-    multi_reader.init(allocator, io, multi_reader_buffer.toStreams(), &.{ child.stdout.?, child.stderr.? });
+    multi_reader.init(
+        allocator,
+        io,
+        multi_reader_buffer.toStreams(),
+        &.{ child.stdout.?, child.stderr.? },
+    );
     defer multi_reader.deinit();
 
     const stdout_reader = multi_reader.reader(0);
@@ -114,7 +163,9 @@ fn collectChildResult(
     var timed_out = false;
 
     while (multi_reader.fill(64, timeout)) |_| {
-        if (stdout_reader.buffered().len > @intFromEnum(output_limit) or stderr_reader.buffered().len > @intFromEnum(output_limit)) {
+        if (stdout_reader.buffered().len > @intFromEnum(output_limit) or
+            stderr_reader.buffered().len > @intFromEnum(output_limit))
+        {
             return RunError.CommandFailed;
         }
     } else |err| switch (err) {
@@ -134,24 +185,13 @@ fn collectChildResult(
         };
     }
 
-    const stdout = multi_reader.toOwnedSlice(0) catch return RunError.OutOfMemory;
-    errdefer allocator.free(stdout);
-
-    const stderr = multi_reader.toOwnedSlice(1) catch return RunError.OutOfMemory;
-    errdefer allocator.free(stderr);
-
-    const exit_code = if (timed_out)
-        -1
-    else
-        termExitCode(child.wait(io) catch return RunError.CommandFailed);
-
-    const end_time = std.Io.Clock.awake.now(io);
-
-    return ProcessResult{
-        .stdout = if (stdout.len > 0) stdout else allocator.dupe(u8, "") catch return RunError.OutOfMemory,
-        .stderr = if (stderr.len > 0) stderr else allocator.dupe(u8, "") catch return RunError.OutOfMemory,
-        .exit_code = exit_code,
-        .duration_ns = @intCast(start_time.durationTo(end_time).toNanoseconds()),
+    return .{
+        .stdout = multi_reader.toOwnedSlice(0) catch return RunError.OutOfMemory,
+        .stderr = multi_reader.toOwnedSlice(1) catch return RunError.OutOfMemory,
+        .exit_code = if (timed_out)
+            -1
+        else
+            termExitCode(child.wait(io) catch return RunError.CommandFailed),
         .timed_out = timed_out,
     };
 }

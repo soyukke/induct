@@ -1,7 +1,11 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-fn appendShellQuoted(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), input: []const u8) !void {
+fn appendShellQuoted(
+    allocator: Allocator,
+    list: *std.ArrayListUnmanaged(u8),
+    input: []const u8,
+) !void {
     try list.append(allocator, '\'');
     for (input) |c| {
         if (c == '\'') {
@@ -168,7 +172,11 @@ pub const TestCase = struct {
         if (self.working_dir) |wd| allocator.free(wd);
     }
 
-    pub fn appendRenderedCommand(self: TestCase, allocator: Allocator, list: *std.ArrayListUnmanaged(u8)) !void {
+    pub fn appendRenderedCommand(
+        self: TestCase,
+        allocator: Allocator,
+        list: *std.ArrayListUnmanaged(u8),
+    ) !void {
         if (self.args) |args| {
             try appendShellQuoted(allocator, list, self.command);
             for (args) |arg| {

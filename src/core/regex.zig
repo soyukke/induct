@@ -313,94 +313,95 @@ fn matchesLine(gpa: Allocator, root: *const Node, line: []const u8) Error!bool {
     return false;
 }
 
-fn collectMatchPositions(gpa: Allocator, node: *const Node, line: []const u8, start: usize) Error!Positions {
+fn collectMatchPositions(
+    gpa: Allocator,
+    node: *const Node,
+    line: []const u8,
+    start: usize,
+) Error!Positions {
     switch (node.*) {
-        .literal => |literal| {
-            var positions: Positions = .empty;
-            errdefer positions.deinit(gpa);
-            if (start < line.len and line[start] == literal) {
-                try positions.append(gpa, start + 1);
-            }
-            return positions;
-        },
-        .any => {
-            var positions: Positions = .empty;
-            errdefer positions.deinit(gpa);
-            if (start < line.len) {
-                try positions.append(gpa, start + 1);
-            }
-            return positions;
-        },
-        .char_class => |class| {
-            var positions: Positions = .empty;
-            errdefer positions.deinit(gpa);
-            if (start < line.len and class.matches(line[start])) {
-                try positions.append(gpa, start + 1);
-            }
-            return positions;
-        },
-        .start_anchor => {
-            var positions: Positions = .empty;
-            errdefer positions.deinit(gpa);
-            if (start == 0) {
-                try positions.append(gpa, start);
-            }
-            return positions;
-        },
-        .end_anchor => {
-            var positions: Positions = .empty;
-            errdefer positions.deinit(gpa);
-            if (start == line.len) {
-                try positions.append(gpa, start);
-            }
-            return positions;
-        },
-        .seq => |children| {
-            var current: Positions = .empty;
-            errdefer current.deinit(gpa);
-            try current.append(gpa, start);
-
-            for (children) |child| {
-                var next: Positions = .empty;
-                errdefer next.deinit(gpa);
-
-                for (current.items) |position| {
-                    var child_positions = try collectMatchPositions(gpa, child, line, position);
-                    defer child_positions.deinit(gpa);
-
-                    for (child_positions.items) |child_position| {
-                        try appendUnique(gpa, &next, child_position);
-                    }
-                }
-
-                current.deinit(gpa);
-                current = next;
-
-                if (current.items.len == 0) break;
-            }
-
-            return current;
-        },
-        .alt => |branches| {
-            var positions: Positions = .empty;
-            errdefer positions.deinit(gpa);
-
-            for (branches) |branch| {
-                var branch_positions = try collectMatchPositions(gpa, branch, line, start);
-                defer branch_positions.deinit(gpa);
-
-                for (branch_positions.items) |position| {
-                    try appendUnique(gpa, &positions, position);
-                }
-            }
-
-            return positions;
-        },
+        .literal => |literal| return collectAtomicPositions(
+            gpa,
+            start < line.len and line[start] == literal,
+            start + 1,
+        ),
+        .any => return collectAtomicPositions(gpa, start < line.len, start + 1),
+        .char_class => |class| return collectAtomicPositions(
+            gpa,
+            start < line.len and class.matches(line[start]),
+            start + 1,
+        ),
+        .start_anchor => return collectAtomicPositions(gpa, start == 0, start),
+        .end_anchor => return collectAtomicPositions(gpa, start == line.len, start),
+        .seq => |children| return collectSequencePositions(gpa, children, line, start),
+        .alt => |branches| return collectAlternativePositions(gpa, branches, line, start),
         .repeat => |repeat| return collectRepeatPositions(gpa, repeat, line, start),
     }
 }
 
-fn collectRepeatPositions(gpa: Allocator, repeat: Repeat, line: []const u8, start: usize) Error!Positions {
+fn collectAtomicPositions(gpa: Allocator, matches: bool, next_position: usize) Error!Positions {
+    var positions: Positions = .empty;
+    errdefer positions.deinit(gpa);
+    if (matches) try positions.append(gpa, next_position);
+    return positions;
+}
+
+fn collectSequencePositions(
+    gpa: Allocator,
+    children: []const *Node,
+    line: []const u8,
+    start: usize,
+) Error!Positions {
+    var current: Positions = .empty;
+    errdefer current.deinit(gpa);
+    try current.append(gpa, start);
+
+    for (children) |child| {
+        var next: Positions = .empty;
+        errdefer next.deinit(gpa);
+
+        for (current.items) |position| {
+            var child_positions = try collectMatchPositions(gpa, child, line, position);
+            defer child_positions.deinit(gpa);
+
+            for (child_positions.items) |child_position| {
+                try appendUnique(gpa, &next, child_position);
+            }
+        }
+
+        current.deinit(gpa);
+        current = next;
+        if (current.items.len == 0) break;
+    }
+    return current;
+}
+
+fn collectAlternativePositions(
+    gpa: Allocator,
+    branches: []const *Node,
+    line: []const u8,
+    start: usize,
+) Error!Positions {
+    var positions: Positions = .empty;
+    errdefer positions.deinit(gpa);
+
+    for (branches) |branch| {
+        var branch_positions = try collectMatchPositions(gpa, branch, line, start);
+        defer branch_positions.deinit(gpa);
+
+        for (branch_positions.items) |position| {
+            try appendUnique(gpa, &positions, position);
+        }
+    }
+    return positions;
+}
+
+fn collectRepeatPositions(
+    gpa: Allocator,
+    repeat: Repeat,
+    line: []const u8,
+    start: usize,
+) Error!Positions {
     var positions: Positions = .empty;
     errdefer positions.deinit(gpa);
 
@@ -441,18 +442,44 @@ fn appendUnique(gpa: Allocator, positions: *Positions, position: usize) Error!vo
 }
 
 test "matches common regex constructs" {
-    try std.testing.expect(try matchesPattern(std.testing.allocator, "version [0-9]+\\.[0-9]+\\.[0-9]+", "version 1.2.3\n"));
-    try std.testing.expect(try matchesPattern(std.testing.allocator, "error:.*line [0-9]+", "warn\nerror: file not found at line 42\n"));
-    try std.testing.expect(try matchesPattern(std.testing.allocator, "hello_(foo|[0-9]+)", "hello_123\n"));
-    try std.testing.expect(!(try matchesPattern(std.testing.allocator, "^beta$", "alpha\nbeta gamma\n")));
+    try std.testing.expect(try matchesPattern(
+        std.testing.allocator,
+        "version [0-9]+\\.[0-9]+\\.[0-9]+",
+        "version 1.2.3\n",
+    ));
+    try std.testing.expect(try matchesPattern(
+        std.testing.allocator,
+        "error:.*line [0-9]+",
+        "warn\nerror: file not found at line 42\n",
+    ));
+    try std.testing.expect(try matchesPattern(
+        std.testing.allocator,
+        "hello_(foo|[0-9]+)",
+        "hello_123\n",
+    ));
+    try std.testing.expect(!(try matchesPattern(
+        std.testing.allocator,
+        "^beta$",
+        "alpha\nbeta gamma\n",
+    )));
 }
 
 test "anchors are line oriented" {
-    try std.testing.expect(try matchesPattern(std.testing.allocator, "^beta$", "alpha\nbeta\nomega\n"));
+    try std.testing.expect(try matchesPattern(
+        std.testing.allocator,
+        "^beta$",
+        "alpha\nbeta\nomega\n",
+    ));
     try std.testing.expect(!(try matchesPattern(std.testing.allocator, "^beta$", "alphabeta\n")));
 }
 
 test "invalid patterns are rejected" {
-    try std.testing.expectError(error.InvalidPattern, matchesPattern(std.testing.allocator, "[0-9", "42"));
-    try std.testing.expectError(error.InvalidPattern, matchesPattern(std.testing.allocator, "(abc", "abc"));
+    try std.testing.expectError(
+        error.InvalidPattern,
+        matchesPattern(std.testing.allocator, "[0-9", "42"),
+    );
+    try std.testing.expectError(
+        error.InvalidPattern,
+        matchesPattern(std.testing.allocator, "(abc", "abc"),
+    );
 }

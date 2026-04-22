@@ -116,161 +116,21 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(1);
     };
 
+    try dispatchCommand(io, allocator, command, stdout, stderr);
+}
+
+fn dispatchCommand(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    command: induct.cli.args.Command,
+    stdout: anytype,
+    stderr: anytype,
+) !void {
     switch (command) {
-        .run => |run_args| {
-            const format: induct.cli.reporter.OutputFormat = if (run_args.junit_output)
-                .junit
-            else if (run_args.json_output)
-                .json
-            else
-                .text;
-            var reporter = induct.cli.reporter.Reporter.initWithFormat(io, run_args.verbose, format);
-
-            const options = induct.core.executor.ExecuteOptions{
-                .fail_fast = run_args.fail_fast,
-                .filter = run_args.filter,
-                .default_timeout_ms = run_args.timeout_ms,
-                .max_jobs = run_args.max_jobs,
-            };
-
-            if (run_args.dry_run) {
-                // Dry-run mode: parse and display without executing
-                try handleDryRun(io, allocator, run_args.spec_path, &reporter);
-                return;
-            }
-
-            if (induct.core.executor.isProjectSpecFile(run_args.spec_path)) {
-                const results = try induct.core.executor.executeProjectSpecFromFileWithOptions(allocator, run_args.spec_path, options);
-                defer {
-                    for (results) |*r| {
-                        var result = @constCast(r);
-                        result.deinit(allocator);
-                    }
-                    allocator.free(results);
-                }
-
-                var summary = induct.core.result.RunSummary.init();
-                for (results) |r| {
-                    reporter.reportResult(r);
-                    summary.add(r);
-                }
-
-                if (format == .junit) {
-                    reporter.reportJunit(results, summary);
-                } else {
-                    reporter.reportSummary(summary, results);
-                }
-
-                if (summary.failed > 0) std.process.exit(1);
-            } else {
-                const results = try induct.core.executor.executeSpecFromFileWithTimeout(allocator, run_args.spec_path, options.default_timeout_ms);
-                defer {
-                    for (results) |*r| {
-                        var result = @constCast(r);
-                        result.deinit(allocator);
-                    }
-                    allocator.free(results);
-                }
-
-                var summary = induct.core.result.RunSummary.init();
-                for (results) |r| {
-                    reporter.reportResult(r);
-                    summary.add(r);
-                }
-
-                if (format == .junit) {
-                    reporter.reportJunit(results, summary);
-                } else {
-                    reporter.reportSummary(summary, results);
-                }
-
-                if (summary.failed > 0) std.process.exit(1);
-            }
-        },
-        .run_dir => |run_args| {
-            const format: induct.cli.reporter.OutputFormat = if (run_args.junit_output)
-                .junit
-            else if (run_args.json_output)
-                .json
-            else
-                .text;
-            var reporter = induct.cli.reporter.Reporter.initWithFormat(io, run_args.verbose, format);
-
-            if (run_args.dry_run) {
-                try handleDryRunDir(io, allocator, run_args.dir_path, &reporter);
-                return;
-            }
-
-            const options = induct.core.executor.ExecuteOptions{
-                .fail_fast = run_args.fail_fast,
-                .filter = run_args.filter,
-                .max_jobs = run_args.max_jobs,
-                .default_timeout_ms = run_args.timeout_ms,
-            };
-
-            const results = try induct.core.executor.executeSpecsFromDirWithOptions(allocator, run_args.dir_path, options);
-            defer {
-                for (results) |*r| {
-                    var result = r.*;
-                    result.deinit(allocator);
-                }
-                allocator.free(results);
-            }
-
-            var summary = induct.core.result.RunSummary.init();
-            for (results) |r| {
-                reporter.reportResult(r);
-                summary.add(r);
-            }
-
-            if (format == .junit) {
-                reporter.reportJunit(results, summary);
-            } else {
-                reporter.reportSummary(summary, results);
-            }
-
-            if (summary.failed > 0) std.process.exit(1);
-        },
-        .init_cmd => |init_args| {
-            const template = templates.get(init_args.template);
-
-            if (init_args.output_path) |path| {
-                const file = std.Io.Dir.cwd().createFile(io, path, .{ .exclusive = true }) catch |err| {
-                    if (err == error.PathAlreadyExists) {
-                        stderr.print("Error: File '{s}' already exists\n", .{path}) catch {};
-                    } else {
-                        stderr.print("Error: Failed to create file '{s}': {}\n", .{ path, err }) catch {};
-                    }
-                    stderr.flush() catch {};
-                    std.process.exit(1);
-                };
-                defer file.close(io);
-                file.writeStreamingAll(io, template) catch |write_err| {
-                    stderr.print("Error: Failed to write file: {}\n", .{write_err}) catch {};
-                    stderr.flush() catch {};
-                    std.process.exit(1);
-                };
-                stdout.print("Created spec template: {s}\n", .{path}) catch {};
-                stdout.flush() catch {};
-                return;
-            } else {
-                // Write to stdout
-                stdout.print("{s}", .{template}) catch {};
-                stdout.flush() catch {};
-            }
-        },
-        .validate_cmd => |val_args| {
-            const err_msg = try induct.core.executor.validateSpecFile(allocator, val_args.spec_path);
-            if (err_msg) |msg| {
-                defer allocator.free(msg);
-                stderr.print("INVALID: {s}\n  {s}\n", .{ val_args.spec_path, msg }) catch {};
-                stderr.flush() catch {};
-                std.process.exit(1);
-            } else {
-                stdout.print("VALID: {s}\n", .{val_args.spec_path}) catch {};
-                stdout.flush() catch {};
-            }
-        },
+        .run => |run_args| try handleRunCommand(io, allocator, run_args),
+        .run_dir => |run_args| try handleRunDirCommand(io, allocator, run_args),
+        .init_cmd => |init_args| handleInitCommand(io, init_args, stdout, stderr),
+        .validate_cmd => |val_args| try handleValidateCommand(allocator, val_args, stdout, stderr),
         .list_cmd => |list_args| {
             try handleList(io, allocator, list_args.dir_path, list_args.markdown, stdout);
             stdout.flush() catch {};
@@ -290,15 +150,163 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
+fn outputFormat(run_json: bool, run_junit: bool) induct.cli.reporter.OutputFormat {
+    return if (run_junit)
+        .junit
+    else if (run_json)
+        .json
+    else
+        .text;
+}
+
+fn summarizeAndReport(
+    reporter: *induct.cli.reporter.Reporter,
+    format: induct.cli.reporter.OutputFormat,
+    results: []const induct.core.result.SpecResult,
+) void {
+    var summary = induct.core.result.RunSummary.init();
+    for (results) |r| {
+        reporter.reportResult(r);
+        summary.add(r);
+    }
+
+    if (format == .junit) {
+        reporter.reportJunit(results, summary);
+    } else {
+        reporter.reportSummary(summary, results);
+    }
+    if (summary.failed > 0) std.process.exit(1);
+}
+
+fn deinitResults(allocator: std.mem.Allocator, results: []induct.core.result.SpecResult) void {
+    for (results) |*r| {
+        var result = @constCast(r);
+        result.deinit(allocator);
+    }
+    allocator.free(results);
+}
+
+fn handleRunCommand(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    run_args: induct.cli.args.RunArgs,
+) !void {
+    const format = outputFormat(run_args.json_output, run_args.junit_output);
+    var reporter = induct.cli.reporter.Reporter.initWithFormat(io, run_args.verbose, format);
+    const options = induct.core.executor.ExecuteOptions{
+        .fail_fast = run_args.fail_fast,
+        .filter = run_args.filter,
+        .default_timeout_ms = run_args.timeout_ms,
+        .max_jobs = run_args.max_jobs,
+    };
+
+    if (run_args.dry_run) return handleDryRun(io, allocator, run_args.spec_path, &reporter);
+
+    const results = if (induct.core.executor.isProjectSpecFile(run_args.spec_path))
+        try induct.core.executor.executeProjectSpecFromFileWithOptions(
+            allocator,
+            run_args.spec_path,
+            options,
+        )
+    else
+        try induct.core.executor.executeSpecFromFileWithTimeout(
+            allocator,
+            run_args.spec_path,
+            options.default_timeout_ms,
+        );
+    defer deinitResults(allocator, results);
+    summarizeAndReport(&reporter, format, results);
+}
+
+fn handleRunDirCommand(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    run_args: induct.cli.args.RunDirArgs,
+) !void {
+    const format = outputFormat(run_args.json_output, run_args.junit_output);
+    var reporter = induct.cli.reporter.Reporter.initWithFormat(io, run_args.verbose, format);
+    if (run_args.dry_run) return handleDryRunDir(io, allocator, run_args.dir_path, &reporter);
+
+    const options = induct.core.executor.ExecuteOptions{
+        .fail_fast = run_args.fail_fast,
+        .filter = run_args.filter,
+        .max_jobs = run_args.max_jobs,
+        .default_timeout_ms = run_args.timeout_ms,
+    };
+    const results = try induct.core.executor.executeSpecsFromDirWithOptions(
+        allocator,
+        run_args.dir_path,
+        options,
+    );
+    defer deinitResults(allocator, results);
+    summarizeAndReport(&reporter, format, results);
+}
+
+fn handleInitCommand(
+    io: std.Io,
+    init_args: induct.cli.args.InitArgs,
+    stdout: anytype,
+    stderr: anytype,
+) void {
+    const template = templates.get(init_args.template);
+    if (init_args.output_path) |path| {
+        const file = std.Io.Dir.cwd().createFile(io, path, .{ .exclusive = true }) catch |err| {
+            if (err == error.PathAlreadyExists) {
+                stderr.print("Error: File '{s}' already exists\n", .{path}) catch {};
+            } else {
+                stderr.print("Error: Failed to create file '{s}': {}\n", .{ path, err }) catch {};
+            }
+            stderr.flush() catch {};
+            std.process.exit(1);
+        };
+        defer file.close(io);
+        file.writeStreamingAll(io, template) catch |write_err| {
+            stderr.print("Error: Failed to write file: {}\n", .{write_err}) catch {};
+            stderr.flush() catch {};
+            std.process.exit(1);
+        };
+        stdout.print("Created spec template: {s}\n", .{path}) catch {};
+        stdout.flush() catch {};
+        return;
+    }
+    stdout.print("{s}", .{template}) catch {};
+    stdout.flush() catch {};
+}
+
+fn handleValidateCommand(
+    allocator: std.mem.Allocator,
+    val_args: induct.cli.args.ValidateArgs,
+    stdout: anytype,
+    stderr: anytype,
+) !void {
+    const err_msg = try induct.core.executor.validateSpecFile(allocator, val_args.spec_path);
+    if (err_msg) |msg| {
+        defer allocator.free(msg);
+        stderr.print("INVALID: {s}\n  {s}\n", .{ val_args.spec_path, msg }) catch {};
+        stderr.flush() catch {};
+        std.process.exit(1);
+    }
+    stdout.print("VALID: {s}\n", .{val_args.spec_path}) catch {};
+    stdout.flush() catch {};
+}
+
 fn formatDryRunCommand(allocator: std.mem.Allocator, test_case: induct.core.TestCase) ![]const u8 {
     return test_case.formatCommand(allocator);
 }
 
-fn reportDryRunSpec(allocator: std.mem.Allocator, reporter: *induct.cli.reporter.Reporter, spec: induct.core.Spec) !void {
+fn reportDryRunSpec(
+    allocator: std.mem.Allocator,
+    reporter: *induct.cli.reporter.Reporter,
+    spec: induct.core.Spec,
+) !void {
     if (spec.hasSteps()) {
         const steps = spec.steps.?;
         for (steps, 0..) |step, idx| {
-            const step_name = try std.fmt.allocPrint(allocator, "{s} > {s}", .{ spec.name, step.name });
+            const step_name = try std.fmt.allocPrint(
+                allocator,
+                "{s} > {s}",
+                .{ spec.name, step.name },
+            );
             defer allocator.free(step_name);
 
             const formatted = try formatDryRunCommand(allocator, step.test_case);
@@ -319,7 +327,12 @@ fn reportDryRunSpec(allocator: std.mem.Allocator, reporter: *induct.cli.reporter
     reporter.reportDryRun(spec.name, formatted, spec.setup != null, spec.teardown != null);
 }
 
-fn handleDryRun(io: std.Io, allocator: std.mem.Allocator, spec_path: []const u8, reporter: *induct.cli.reporter.Reporter) !void {
+fn handleDryRun(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    spec_path: []const u8,
+    reporter: *induct.cli.reporter.Reporter,
+) !void {
     if (induct.core.executor.isProjectSpecFile(spec_path)) {
         var project = try induct.yaml.parser.parseProjectSpecFromFile(allocator, spec_path);
         defer project.deinit(allocator);
@@ -341,14 +354,19 @@ fn handleDryRun(io: std.Io, allocator: std.mem.Allocator, spec_path: []const u8,
     }
 }
 
-fn handleDryRunDir(io: std.Io, allocator: std.mem.Allocator, dir_path: []const u8, reporter: *induct.cli.reporter.Reporter) !void {
+fn handleDryRunDir(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    dir_path: []const u8,
+    reporter: *induct.cli.reporter.Reporter,
+) !void {
     var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
     defer dir.close(io);
 
     var iter = dir.iterate();
     while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
+        if (!isYamlFile(entry.name)) continue;
 
         const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
         defer allocator.free(full_path);
@@ -388,7 +406,13 @@ const ListEntry = struct {
     file: []const u8,
 };
 
-fn handleList(io: std.Io, allocator: std.mem.Allocator, path: []const u8, markdown: bool, writer: anytype) !void {
+fn handleList(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    markdown: bool,
+    writer: anytype,
+) !void {
     // Check if path is a file (ProjectSpec) or directory
     const is_file = blk: {
         std.Io.Dir.cwd().access(io, path, .{}) catch break :blk false;
@@ -475,21 +499,29 @@ fn handleList(io: std.Io, allocator: std.mem.Allocator, path: []const u8, markdo
     }
 }
 
-fn collectDirEntries(io: std.Io, allocator: std.mem.Allocator, dir_path: []const u8, entries: *std.ArrayListUnmanaged(ListEntry)) !void {
+fn collectDirEntries(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    dir_path: []const u8,
+    entries: *std.ArrayListUnmanaged(ListEntry),
+) !void {
     var dir = try std.Io.Dir.cwd().openDir(io, dir_path, .{ .iterate = true });
     defer dir.close(io);
 
     var iter = dir.iterate();
     while (try iter.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.name, ".yaml") and !std.mem.endsWith(u8, entry.name, ".yml")) continue;
+        if (!isYamlFile(entry.name)) continue;
 
         const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir_path, entry.name });
         defer allocator.free(full_path);
 
         var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
         const name = try allocator.dupe(u8, spec.name);
-        const desc = if (spec.description) |d| try allocator.dupe(u8, d) else try allocator.dupe(u8, "");
+        const desc = if (spec.description) |d|
+            try allocator.dupe(u8, d)
+        else
+            try allocator.dupe(u8, "");
         const file = try allocator.dupe(u8, entry.name);
         spec.deinit(allocator);
 
@@ -497,7 +529,11 @@ fn collectDirEntries(io: std.Io, allocator: std.mem.Allocator, dir_path: []const
     }
 }
 
-fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, entries: *std.ArrayListUnmanaged(ListEntry)) !void {
+fn collectProjectSpecEntries(
+    allocator: std.mem.Allocator,
+    path: []const u8,
+    entries: *std.ArrayListUnmanaged(ListEntry),
+) !void {
     var project = try induct.yaml.parser.parseProjectSpecFromFile(allocator, path);
     defer project.deinit(allocator);
 
@@ -506,7 +542,10 @@ fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, ent
     // Inline specs
     for (project.specs) |spec| {
         const name = try allocator.dupe(u8, spec.name);
-        const desc = if (spec.description) |d| try allocator.dupe(u8, d) else try allocator.dupe(u8, "");
+        const desc = if (spec.description) |d|
+            try allocator.dupe(u8, d)
+        else
+            try allocator.dupe(u8, "");
         const file = try allocator.dupe(u8, "(inline)");
         try entries.append(allocator, .{ .name = name, .description = desc, .file = file });
     }
@@ -527,7 +566,10 @@ fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, ent
 
         var spec = induct.yaml.parser.parseSpecFromFile(allocator, full_path) catch continue;
         const name = try allocator.dupe(u8, spec.name);
-        const desc = if (spec.description) |d| try allocator.dupe(u8, d) else try allocator.dupe(u8, "");
+        const desc = if (spec.description) |d|
+            try allocator.dupe(u8, d)
+        else
+            try allocator.dupe(u8, "");
         const file = try allocator.dupe(u8, include_path);
         spec.deinit(allocator);
 
@@ -537,4 +579,8 @@ fn collectProjectSpecEntries(allocator: std.mem.Allocator, path: []const u8, ent
 
 test "main module imports" {
     _ = induct;
+}
+
+fn isYamlFile(name: []const u8) bool {
+    return std.mem.endsWith(u8, name, ".yaml") or std.mem.endsWith(u8, name, ".yml");
 }

@@ -150,6 +150,71 @@ pub const Parser = struct {
         }
     }
 
+    const LineIndent = struct {
+        line_start: usize,
+        indent: usize,
+    };
+
+    fn readLineIndent(self: *Parser) ?LineIndent {
+        if (self.pos >= self.source.len) return null;
+        const line_start = self.pos;
+        var indent: usize = 0;
+        while (self.pos < self.source.len and self.source[self.pos] == ' ') {
+            indent += 1;
+            self.pos += 1;
+        }
+        return .{ .line_start = line_start, .indent = indent };
+    }
+
+    fn parseMapKey(self: *Parser, line_start: usize) ParseError!?[]const u8 {
+        const key_start = self.pos;
+        while (self.pos < self.source.len and
+            self.source[self.pos] != ':' and
+            self.source[self.pos] != '\n')
+        {
+            self.pos += 1;
+        }
+        if (self.pos >= self.source.len or self.source[self.pos] != ':') {
+            self.pos = line_start;
+            return null;
+        }
+        const key = std.mem.trim(u8, self.source[key_start..self.pos], " \t");
+        return self.allocator.dupe(u8, key) catch ParseError.OutOfMemory;
+    }
+
+    fn parseNestedValue(self: *Parser, parent_indent: usize) ParseError!YamlValue {
+        self.skipToNextLine();
+        self.skipEmptyLinesAndComments();
+        if (self.pos >= self.source.len) return .null_value;
+
+        const value_start = self.pos;
+        var value_indent: usize = 0;
+        while (self.pos < self.source.len and self.source[self.pos] == ' ') {
+            value_indent += 1;
+            self.pos += 1;
+        }
+
+        if (value_indent <= parent_indent or self.pos >= self.source.len) {
+            self.pos = value_start;
+            return .null_value;
+        }
+
+        self.pos = value_start;
+        if (self.source[self.pos] == '-') return self.parseList(value_indent);
+        return self.parseMap(value_indent);
+    }
+
+    fn parseMapValue(self: *Parser, indent: usize) ParseError!YamlValue {
+        while (self.pos < self.source.len and self.source[self.pos] == ' ') {
+            self.pos += 1;
+        }
+        if (self.pos >= self.source.len or self.source[self.pos] == '\n') {
+            return self.parseNestedValue(indent);
+        }
+        if (self.source[self.pos] == '|') return self.parseMultilineString(indent);
+        return self.parseScalar();
+    }
+
     fn parseMap(self: *Parser, min_indent: usize) ParseError!YamlValue {
         var map = std.StringHashMap(YamlValue).init(self.allocator);
         errdefer {
@@ -164,87 +229,21 @@ pub const Parser = struct {
 
         while (self.pos < self.source.len) {
             self.skipEmptyLinesAndComments();
-            if (self.pos >= self.source.len) break;
-
-            // Count indent of this line
-            const line_start = self.pos;
-            var indent: usize = 0;
-            while (self.pos < self.source.len and self.source[self.pos] == ' ') {
-                indent += 1;
-                self.pos += 1;
-            }
-
-            // Check if we've dedented past our level
-            if (indent < min_indent and map.count() > 0) {
-                self.pos = line_start;
+            const info = self.readLineIndent() orelse break;
+            if (info.indent < min_indent and map.count() > 0) {
+                self.pos = info.line_start;
                 break;
             }
-
-            if (self.pos >= self.source.len or self.source[self.pos] == '\n') {
-                continue;
-            }
-
-            // Check for list
+            if (self.pos >= self.source.len or self.source[self.pos] == '\n') continue;
             if (self.source[self.pos] == '-') {
-                self.pos = line_start;
+                self.pos = info.line_start;
                 break;
             }
 
-            // Parse key
-            const key_start = self.pos;
-            while (self.pos < self.source.len and self.source[self.pos] != ':' and self.source[self.pos] != '\n') {
-                self.pos += 1;
-            }
-
-            if (self.pos >= self.source.len or self.source[self.pos] != ':') {
-                self.pos = line_start;
-                break;
-            }
-
-            const key = std.mem.trim(u8, self.source[key_start..self.pos], " \t");
-            const key_duped = self.allocator.dupe(u8, key) catch return ParseError.OutOfMemory;
-
+            const key_duped = (try self.parseMapKey(info.line_start)) orelse break;
+            errdefer self.allocator.free(key_duped);
             self.pos += 1; // skip ':'
-
-            // Skip spaces after colon
-            while (self.pos < self.source.len and self.source[self.pos] == ' ') {
-                self.pos += 1;
-            }
-
-            // Parse value
-            var value: YamlValue = undefined;
-            if (self.pos >= self.source.len or self.source[self.pos] == '\n') {
-                // Value is on next lines - could be map or list
-                self.skipToNextLine();
-                self.skipEmptyLinesAndComments();
-
-                if (self.pos >= self.source.len) {
-                    value = .null_value;
-                } else {
-                    // Count indent of value
-                    var value_indent: usize = 0;
-                    const value_start = self.pos;
-                    while (self.pos < self.source.len and self.source[self.pos] == ' ') {
-                        value_indent += 1;
-                        self.pos += 1;
-                    }
-
-                    if (value_indent <= indent) {
-                        self.pos = value_start;
-                        value = .null_value;
-                    } else if (self.pos < self.source.len and self.source[self.pos] == '-') {
-                        self.pos = value_start;
-                        value = try self.parseList(value_indent);
-                    } else {
-                        self.pos = value_start;
-                        value = try self.parseMap(value_indent);
-                    }
-                }
-            } else if (self.source[self.pos] == '|') {
-                value = try self.parseMultilineString(indent);
-            } else {
-                value = try self.parseScalar();
-            }
+            const value = try self.parseMapValue(info.indent);
 
             map.put(key_duped, value) catch {
                 self.allocator.free(key_duped);
@@ -255,74 +254,91 @@ pub const Parser = struct {
         return .{ .map = map };
     }
 
+    fn listItemHasInlineMap(self: *Parser) bool {
+        if (self.source[self.pos] == '"' or self.source[self.pos] == '\'') return false;
+        var peek = self.pos;
+        while (peek < self.source.len and self.source[peek] != '\n') : (peek += 1) {
+            if (self.source[peek] == ':') return true;
+        }
+        return false;
+    }
+
+    fn parseListItemValue(self: *Parser, indent: usize) ParseError!YamlValue {
+        if (self.pos >= self.source.len or self.source[self.pos] == '\n') {
+            self.skipToNextLine();
+            return self.parseMap(indent + 2);
+        }
+        if (self.listItemHasInlineMap()) return self.parseMap(indent + 2);
+        return self.parseScalar();
+    }
+
     fn parseList(self: *Parser, min_indent: usize) ParseError!YamlValue {
         var items: std.ArrayListUnmanaged(YamlValue) = .empty;
         errdefer {
-            for (items.items) |*item| {
-                item.deinit(self.allocator);
-            }
+            for (items.items) |*item| item.deinit(self.allocator);
             items.deinit(self.allocator);
         }
 
         while (self.pos < self.source.len) {
             self.skipEmptyLinesAndComments();
-            if (self.pos >= self.source.len) break;
-
-            // Count indent
-            const line_start = self.pos;
-            var indent: usize = 0;
-            while (self.pos < self.source.len and self.source[self.pos] == ' ') {
-                indent += 1;
-                self.pos += 1;
-            }
-
-            if (indent < min_indent and items.items.len > 0) {
-                self.pos = line_start;
+            const info = self.readLineIndent() orelse break;
+            if (info.indent < min_indent and items.items.len > 0) {
+                self.pos = info.line_start;
                 break;
             }
-
             if (self.pos >= self.source.len or self.source[self.pos] != '-') {
-                self.pos = line_start;
+                self.pos = info.line_start;
                 break;
             }
 
             self.pos += 1; // skip '-'
-
-            // Skip space after dash
             while (self.pos < self.source.len and self.source[self.pos] == ' ') {
                 self.pos += 1;
             }
-
-            // Parse the list item value
-            if (self.pos >= self.source.len or self.source[self.pos] == '\n') {
-                // Value on next line
-                self.skipToNextLine();
-                items.append(self.allocator, try self.parseMap(indent + 2)) catch return ParseError.OutOfMemory;
-            } else {
-                // Check if it's a map on the same line (key: value)
-                // Skip colon detection if value starts with a quote (it's a string)
-                var has_colon = false;
-                if (self.source[self.pos] != '"' and self.source[self.pos] != '\'') {
-                    var peek = self.pos;
-                    while (peek < self.source.len and self.source[peek] != '\n') {
-                        if (self.source[peek] == ':') {
-                            has_colon = true;
-                            break;
-                        }
-                        peek += 1;
-                    }
-                }
-
-                if (has_colon) {
-                    items.append(self.allocator, try self.parseMap(indent + 2)) catch return ParseError.OutOfMemory;
-                } else {
-                    items.append(self.allocator, try self.parseScalar()) catch return ParseError.OutOfMemory;
-                }
-            }
+            items.append(self.allocator, try self.parseListItemValue(info.indent)) catch
+                return ParseError.OutOfMemory;
         }
 
         const result = items.toOwnedSlice(self.allocator) catch return ParseError.OutOfMemory;
         return .{ .list = result };
+    }
+
+    fn freeMultilineLines(self: *Parser, lines: *std.ArrayListUnmanaged([]const u8)) void {
+        for (lines.items) |line| {
+            if (line.len > 0) self.allocator.free(line);
+        }
+        lines.deinit(self.allocator);
+    }
+
+    fn appendMultilineLine(
+        self: *Parser,
+        lines: *std.ArrayListUnmanaged([]const u8),
+    ) ParseError!void {
+        const content_start = self.pos;
+        while (self.pos < self.source.len and self.source[self.pos] != '\n') {
+            self.pos += 1;
+        }
+        const line_content = self.source[content_start..self.pos];
+        const duped = self.allocator.dupe(u8, line_content) catch return ParseError.OutOfMemory;
+        lines.append(self.allocator, duped) catch {
+            self.allocator.free(duped);
+            return ParseError.OutOfMemory;
+        };
+        if (self.pos < self.source.len) self.pos += 1;
+    }
+
+    fn joinMultilineLines(self: *Parser, lines: []const []const u8) ParseError![]const u8 {
+        var result: std.ArrayListUnmanaged(u8) = .empty;
+        errdefer result.deinit(self.allocator);
+
+        for (lines, 0..) |line, i| {
+            result.appendSlice(self.allocator, line) catch return ParseError.OutOfMemory;
+            if (i < lines.len - 1) {
+                result.append(self.allocator, '\n') catch return ParseError.OutOfMemory;
+            }
+        }
+        result.append(self.allocator, '\n') catch return ParseError.OutOfMemory;
+        return result.toOwnedSlice(self.allocator) catch return ParseError.OutOfMemory;
     }
 
     fn parseMultilineString(self: *Parser, base_indent: usize) ParseError!YamlValue {
@@ -330,91 +346,36 @@ pub const Parser = struct {
         self.skipToNextLine();
 
         var lines: std.ArrayListUnmanaged([]const u8) = .empty;
-        defer lines.deinit(self.allocator);
-
+        defer self.freeMultilineLines(&lines);
         var content_indent: ?usize = null;
 
         while (self.pos < self.source.len) {
             const line_start = self.pos;
+            const info = self.readLineIndent() orelse break;
 
-            // Count indent
-            var indent: usize = 0;
-            while (self.pos < self.source.len and self.source[self.pos] == ' ') {
-                indent += 1;
-                self.pos += 1;
-            }
-
-            // Empty line
             if (self.pos >= self.source.len or self.source[self.pos] == '\n') {
                 lines.append(self.allocator, "") catch return ParseError.OutOfMemory;
                 if (self.pos < self.source.len) self.pos += 1;
                 continue;
             }
-
-            // Determine content indent from first non-empty line
             if (content_indent == null) {
-                if (indent <= base_indent) {
+                if (info.indent <= base_indent) {
                     self.pos = line_start;
                     break;
                 }
-                content_indent = indent;
+                content_indent = info.indent;
             }
-
-            // Check if we've dedented
-            if (indent < content_indent.?) {
+            if (info.indent < content_indent.?) {
                 self.pos = line_start;
                 break;
             }
-
-            // Read line content
-            const content_start = self.pos;
-            while (self.pos < self.source.len and self.source[self.pos] != '\n') {
-                self.pos += 1;
-            }
-
-            const line_content = self.source[content_start..self.pos];
-            const duped = self.allocator.dupe(u8, line_content) catch return ParseError.OutOfMemory;
-            lines.append(self.allocator, duped) catch {
-                self.allocator.free(duped);
-                return ParseError.OutOfMemory;
-            };
-
-            if (self.pos < self.source.len) self.pos += 1; // skip newline
+            try self.appendMultilineLine(&lines);
         }
 
-        // Join lines with newlines
         if (lines.items.len == 0) {
             return .{ .string = self.allocator.dupe(u8, "") catch return ParseError.OutOfMemory };
         }
-
-        var total_len: usize = 0;
-        for (lines.items) |line| {
-            total_len += line.len + 1;
-        }
-
-        var result = self.allocator.alloc(u8, total_len) catch return ParseError.OutOfMemory;
-        var offset: usize = 0;
-        for (lines.items, 0..) |line, i| {
-            @memcpy(result[offset .. offset + line.len], line);
-            offset += line.len;
-            if (i < lines.items.len - 1) {
-                result[offset] = '\n';
-                offset += 1;
-            }
-        }
-
-        // Free individual line copies
-        for (lines.items) |line| {
-            if (line.len > 0) {
-                self.allocator.free(line);
-            }
-        }
-
-        // Add final newline
-        const final_result = self.allocator.realloc(result, offset + 1) catch return ParseError.OutOfMemory;
-        final_result[offset] = '\n';
-
-        return .{ .string = final_result };
+        return .{ .string = try self.joinMultilineLines(lines.items) };
     }
 
     fn parseScalar(self: *Parser) ParseError!YamlValue {
@@ -436,7 +397,10 @@ pub const Parser = struct {
 
         // Unquoted value
         const start = self.pos;
-        while (self.pos < self.source.len and self.source[self.pos] != '\n' and self.source[self.pos] != '#') {
+        while (self.pos < self.source.len and
+            self.source[self.pos] != '\n' and
+            self.source[self.pos] != '#')
+        {
             self.pos += 1;
         }
 
@@ -453,10 +417,16 @@ pub const Parser = struct {
         }
 
         // Try to parse as boolean
-        if (std.mem.eql(u8, raw, "true") or std.mem.eql(u8, raw, "True") or std.mem.eql(u8, raw, "TRUE")) {
+        if (std.mem.eql(u8, raw, "true") or
+            std.mem.eql(u8, raw, "True") or
+            std.mem.eql(u8, raw, "TRUE"))
+        {
             return .{ .boolean = true };
         }
-        if (std.mem.eql(u8, raw, "false") or std.mem.eql(u8, raw, "False") or std.mem.eql(u8, raw, "FALSE")) {
+        if (std.mem.eql(u8, raw, "false") or
+            std.mem.eql(u8, raw, "False") or
+            std.mem.eql(u8, raw, "FALSE"))
+        {
             return .{ .boolean = false };
         }
 
@@ -490,7 +460,8 @@ pub const Parser = struct {
                 };
                 result.append(self.allocator, escaped) catch return ParseError.OutOfMemory;
             } else {
-                result.append(self.allocator, self.source[self.pos]) catch return ParseError.OutOfMemory;
+                result.append(self.allocator, self.source[self.pos]) catch
+                    return ParseError.OutOfMemory;
             }
             self.pos += 1;
         }
@@ -510,7 +481,10 @@ pub const Parser = struct {
     }
 };
 
-fn parseEnvVars(allocator: Allocator, test_map: *std.StringHashMap(YamlValue)) ParseError!?[]const EnvVar {
+fn parseEnvVars(
+    allocator: Allocator,
+    test_map: *std.StringHashMap(YamlValue),
+) ParseError!?[]const EnvVar {
     const env_val_ptr = test_map.getPtr("env") orelse return null;
     const env_map = env_val_ptr.getMap() orelse return null;
 
@@ -591,7 +565,7 @@ fn expandStringList(
     return expanded;
 }
 
-/// Parse a YAML value as either a single string → 1-element slice, or a list of strings → slice.
+/// Parse a YAML value as either a single string or a list of strings.
 fn parseStringOrList(allocator: Allocator, val: YamlValue) ParseError!?[]const []const u8 {
     // Single string
     if (val.getString()) |s| {
@@ -667,65 +641,154 @@ fn parseInputLines(allocator: Allocator, val: YamlValue) ParseError!?spec_mod.In
     };
 }
 
-fn parseTestCaseFromMap(allocator: Allocator, test_map: *std.StringHashMap(YamlValue)) ParseError!TestCase {
-    const command_val = test_map.get("command") orelse return ParseError.MissingRequiredField;
-    const command = command_val.getString() orelse return ParseError.InvalidYaml;
-    const args = if (test_map.get("args")) |v| try parseArgsList(allocator, v) else null;
+const InputFields = struct {
+    input: ?[]const u8 = null,
+    input_lines: ?spec_mod.InputLines = null,
+};
 
-    const input = if (test_map.get("input")) |v| v.getString() else null;
-    const input_lines_val = if (test_map.get("input_lines")) |v| try parseInputLines(allocator, v) else null;
+const AssertionFields = struct {
+    expect_output: ?[]const u8 = null,
+    expect_output_contains: ?[]const []const u8 = null,
+    expect_output_not_contains: ?[]const []const u8 = null,
+    expect_output_regex: ?[]const u8 = null,
+    expect_stderr: ?[]const u8 = null,
+    expect_stderr_contains: ?[]const []const u8 = null,
+    expect_stderr_not_contains: ?[]const []const u8 = null,
+    expect_stderr_regex: ?[]const u8 = null,
+    expect_exit_code: i32 = 0,
+};
 
-    // Exclusive check: input and input_lines cannot coexist
-    if (input != null and input_lines_val != null) {
-        if (input_lines_val) |il| il.deinit(allocator);
-        return ParseError.InvalidYaml;
+fn dupOptionalString(allocator: Allocator, value: ?[]const u8) ParseError!?[]const u8 {
+    if (value) |s| {
+        return allocator.dupe(u8, s) catch return ParseError.OutOfMemory;
     }
+    return null;
+}
 
-    const expect_output = if (test_map.get("expect_output")) |v| v.getString() else null;
-    const expect_output_contains = if (test_map.get("expect_output_contains")) |v| try parseStringOrList(allocator, v) else null;
-    const expect_output_not_contains = if (test_map.get("expect_output_not_contains")) |v| try parseStringOrList(allocator, v) else null;
-    const expect_output_regex = if (test_map.get("expect_output_regex")) |v| v.getString() else null;
-    const expect_stderr = if (test_map.get("expect_stderr")) |v| v.getString() else null;
-    const expect_stderr_contains = if (test_map.get("expect_stderr_contains")) |v| try parseStringOrList(allocator, v) else null;
-    const expect_stderr_not_contains = if (test_map.get("expect_stderr_not_contains")) |v| try parseStringOrList(allocator, v) else null;
-    const expect_stderr_regex = if (test_map.get("expect_stderr_regex")) |v| v.getString() else null;
-    const expect_exit_code: i32 = if (test_map.get("expect_exit_code")) |v|
-        @intCast(v.getInt() orelse 0)
-    else
-        0;
-    const generate: bool = if (test_map.get("generate")) |v| v.getBool() orelse false else false;
-    const target_path = if (test_map.get("target_path")) |v| v.getString() else null;
-    const working_dir = if (test_map.get("working_dir")) |v| v.getString() else null;
-    const timeout_ms: ?u64 = if (test_map.get("timeout_ms")) |v|
-        if (v.getInt()) |i| @as(?u64, @intCast(i)) else null
+fn parseInputFields(
+    allocator: Allocator,
+    test_map: *std.StringHashMap(YamlValue),
+) ParseError!InputFields {
+    const input = if (test_map.get("input")) |v| v.getString() else null;
+    const input_lines = if (test_map.get("input_lines")) |v|
+        try parseInputLines(allocator, v)
     else
         null;
 
-    const env = try parseEnvVars(allocator, test_map);
+    if (input != null and input_lines != null) {
+        if (input_lines) |il| il.deinit(allocator);
+        return ParseError.InvalidYaml;
+    }
+    return .{ .input = input, .input_lines = input_lines };
+}
 
+fn parseAssertionFields(
+    allocator: Allocator,
+    map: *std.StringHashMap(YamlValue),
+) ParseError!AssertionFields {
+    return .{
+        .expect_output = if (map.get("expect_output")) |v| v.getString() else null,
+        .expect_output_contains = if (map.get("expect_output_contains")) |v|
+            try parseStringOrList(allocator, v)
+        else
+            null,
+        .expect_output_not_contains = if (map.get("expect_output_not_contains")) |v|
+            try parseStringOrList(allocator, v)
+        else
+            null,
+        .expect_output_regex = if (map.get("expect_output_regex")) |v| v.getString() else null,
+        .expect_stderr = if (map.get("expect_stderr")) |v| v.getString() else null,
+        .expect_stderr_contains = if (map.get("expect_stderr_contains")) |v|
+            try parseStringOrList(allocator, v)
+        else
+            null,
+        .expect_stderr_not_contains = if (map.get("expect_stderr_not_contains")) |v|
+            try parseStringOrList(allocator, v)
+        else
+            null,
+        .expect_stderr_regex = if (map.get("expect_stderr_regex")) |v| v.getString() else null,
+        .expect_exit_code = if (map.get("expect_exit_code")) |v|
+            @intCast(v.getInt() orelse 0)
+        else
+            0,
+    };
+}
+
+fn parseTimeoutMs(map: *std.StringHashMap(YamlValue)) ?u64 {
+    if (map.get("timeout_ms")) |v| {
+        if (v.getInt()) |i| return @as(u64, @intCast(i));
+    }
+    return null;
+}
+
+fn buildOwnedTestCase(
+    allocator: Allocator,
+    command: []const u8,
+    args: ?[]const []const u8,
+    input_fields: InputFields,
+    assertions: AssertionFields,
+    generate: bool,
+    target_path: ?[]const u8,
+    env: ?[]const EnvVar,
+    working_dir: ?[]const u8,
+    timeout_ms: ?u64,
+) ParseError!TestCase {
     return TestCase{
         .command = allocator.dupe(u8, command) catch return ParseError.OutOfMemory,
         .args = args,
-        .input = if (input) |i| allocator.dupe(u8, i) catch return ParseError.OutOfMemory else null,
-        .input_lines = input_lines_val,
-        .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_output_contains = expect_output_contains,
-        .expect_output_not_contains = expect_output_not_contains,
-        .expect_output_regex = if (expect_output_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_stderr = if (expect_stderr) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_stderr_contains = expect_stderr_contains,
-        .expect_stderr_not_contains = expect_stderr_not_contains,
-        .expect_stderr_regex = if (expect_stderr_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-        .expect_exit_code = expect_exit_code,
+        .input = try dupOptionalString(allocator, input_fields.input),
+        .input_lines = input_fields.input_lines,
+        .expect_output = try dupOptionalString(allocator, assertions.expect_output),
+        .expect_output_contains = assertions.expect_output_contains,
+        .expect_output_not_contains = assertions.expect_output_not_contains,
+        .expect_output_regex = try dupOptionalString(allocator, assertions.expect_output_regex),
+        .expect_stderr = try dupOptionalString(allocator, assertions.expect_stderr),
+        .expect_stderr_contains = assertions.expect_stderr_contains,
+        .expect_stderr_not_contains = assertions.expect_stderr_not_contains,
+        .expect_stderr_regex = try dupOptionalString(allocator, assertions.expect_stderr_regex),
+        .expect_exit_code = assertions.expect_exit_code,
         .generate = generate,
-        .target_path = if (target_path) |tp| allocator.dupe(u8, tp) catch return ParseError.OutOfMemory else null,
+        .target_path = try dupOptionalString(allocator, target_path),
         .env = env,
-        .working_dir = if (working_dir) |wd| allocator.dupe(u8, wd) catch return ParseError.OutOfMemory else null,
+        .working_dir = try dupOptionalString(allocator, working_dir),
         .timeout_ms = timeout_ms,
     };
 }
 
-fn parseSetupCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const SetupCommand {
+fn parseTestCaseFromMap(
+    allocator: Allocator,
+    test_map: *std.StringHashMap(YamlValue),
+) ParseError!TestCase {
+    const command_val = test_map.get("command") orelse return ParseError.MissingRequiredField;
+    const command = command_val.getString() orelse return ParseError.InvalidYaml;
+    const args = if (test_map.get("args")) |v| try parseArgsList(allocator, v) else null;
+
+    const input_fields = try parseInputFields(allocator, test_map);
+    const assertions = try parseAssertionFields(allocator, test_map);
+    const generate: bool = if (test_map.get("generate")) |v| v.getBool() orelse false else false;
+    const target_path = if (test_map.get("target_path")) |v| v.getString() else null;
+    const working_dir = if (test_map.get("working_dir")) |v| v.getString() else null;
+    const timeout_ms = parseTimeoutMs(test_map);
+    const env = try parseEnvVars(allocator, test_map);
+
+    return buildOwnedTestCase(
+        allocator,
+        command,
+        args,
+        input_fields,
+        assertions,
+        generate,
+        target_path,
+        env,
+        working_dir,
+        timeout_ms,
+    );
+}
+
+fn parseSetupCommands(
+    allocator: Allocator,
+    map: *std.StringHashMap(YamlValue),
+) ParseError!?[]const SetupCommand {
     const setup_val = map.get("setup") orelse return null;
     const list = setup_val.getList() orelse return null;
 
@@ -754,11 +817,15 @@ fn parseSetupCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue)) 
     return setup_cmds;
 }
 
-fn parseTeardownCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const TeardownCommand {
+fn parseTeardownCommands(
+    allocator: Allocator,
+    map: *std.StringHashMap(YamlValue),
+) ParseError!?[]const TeardownCommand {
     const teardown_val = map.get("teardown") orelse return null;
     const list = teardown_val.getList() orelse return null;
 
-    var teardown_cmds = allocator.alloc(TeardownCommand, list.len) catch return ParseError.OutOfMemory;
+    var teardown_cmds = allocator.alloc(TeardownCommand, list.len) catch
+        return ParseError.OutOfMemory;
     for (list, 0..) |item, i| {
         var item_copy = item;
         if (item_copy.getMap()) |item_map| {
@@ -770,7 +837,8 @@ fn parseTeardownCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue
             } else if (item_map.get("kill_process")) |kill_val| {
                 const kill_str = kill_val.getString() orelse return ParseError.InvalidYaml;
                 teardown_cmds[i] = .{
-                    .kill_process = allocator.dupe(u8, kill_str) catch return ParseError.OutOfMemory,
+                    .kill_process = allocator.dupe(u8, kill_str) catch
+                        return ParseError.OutOfMemory,
                 };
             } else {
                 allocator.free(teardown_cmds);
@@ -784,7 +852,10 @@ fn parseTeardownCommands(allocator: Allocator, map: *std.StringHashMap(YamlValue
     return teardown_cmds;
 }
 
-fn parseSteps(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const spec_mod.Step {
+fn parseSteps(
+    allocator: Allocator,
+    map: *std.StringHashMap(YamlValue),
+) ParseError!?[]const spec_mod.Step {
     const steps_val = map.get("steps") orelse return null;
     const list = steps_val.getList() orelse return null;
     if (list.len == 0) return null;
@@ -857,7 +928,8 @@ fn expandTemplateWithDepth(
     while (i < template.len) {
         if (i + 1 < template.len and template[i] == '$' and template[i + 1] == '{') {
             const var_start = i + 2;
-            const var_end = std.mem.indexOfScalarPos(u8, template, var_start, '}') orelse return ParseError.InvalidYaml;
+            const var_end = std.mem.indexOfScalarPos(u8, template, var_start, '}') orelse
+                return ParseError.InvalidYaml;
             const var_name = template[var_start..var_end];
 
             if (case_map.get(var_name)) |val| {
@@ -866,7 +938,8 @@ fn expandTemplateWithDepth(
                     defer allocator.free(expanded);
                     result.appendSlice(allocator, expanded) catch return ParseError.OutOfMemory;
                 } else if (val.getInt()) |int_val| {
-                    const s = std.fmt.allocPrint(allocator, "{d}", .{int_val}) catch return ParseError.OutOfMemory;
+                    const s = std.fmt.allocPrint(allocator, "{d}", .{int_val}) catch
+                        return ParseError.OutOfMemory;
                     result.appendSlice(allocator, s) catch return ParseError.OutOfMemory;
                     allocator.free(s);
                 } else {
@@ -876,7 +949,8 @@ fn expandTemplateWithDepth(
                 result.appendSlice(allocator, value) catch return ParseError.OutOfMemory;
             } else {
                 // Variable not found — keep as-is
-                result.appendSlice(allocator, template[i .. var_end + 1]) catch return ParseError.OutOfMemory;
+                result.appendSlice(allocator, template[i .. var_end + 1]) catch
+                    return ParseError.OutOfMemory;
             }
             i = var_end + 1;
         } else {
@@ -889,7 +963,11 @@ fn expandTemplateWithDepth(
 }
 
 /// Replace all ${var} occurrences in template with values from the case map.
-fn expandTemplate(allocator: Allocator, template: []const u8, case_map: *std.StringHashMap(YamlValue)) ParseError![]const u8 {
+fn expandTemplate(
+    allocator: Allocator,
+    template: []const u8,
+    case_map: *std.StringHashMap(YamlValue),
+) ParseError![]const u8 {
     return expandTemplateWithDepth(allocator, template, case_map, 0);
 }
 
@@ -900,7 +978,8 @@ fn expandInputLines(
 ) ParseError!spec_mod.InputLines {
     defer input_lines.deinit(allocator);
 
-    const expanded_lines = allocator.alloc([]const u8, input_lines.lines.len) catch return ParseError.OutOfMemory;
+    const expanded_lines = allocator.alloc([]const u8, input_lines.lines.len) catch
+        return ParseError.OutOfMemory;
     errdefer allocator.free(expanded_lines);
 
     var expanded_count: usize = 0;
@@ -920,120 +999,293 @@ fn expandInputLines(
     };
 }
 
-fn parseTestTable(allocator: Allocator, map: *std.StringHashMap(YamlValue)) ParseError!?[]const spec_mod.Step {
+fn deinitAssertionLists(allocator: Allocator, assertions: AssertionFields) void {
+    if (assertions.expect_output_contains) |items| deinitStringList(allocator, items);
+    if (assertions.expect_output_not_contains) |items| deinitStringList(allocator, items);
+    if (assertions.expect_stderr_contains) |items| deinitStringList(allocator, items);
+    if (assertions.expect_stderr_not_contains) |items| deinitStringList(allocator, items);
+}
+
+const TestTableConfig = struct {
+    command_template: []const u8,
+    args_template: ?[]const []const u8,
+    cases: []const YamlValue,
+};
+
+fn parseTestTableConfig(
+    allocator: Allocator,
+    map: *std.StringHashMap(YamlValue),
+) ParseError!?TestTableConfig {
     const table_val_ptr = map.getPtr("test_table") orelse return null;
     var table_map = table_val_ptr.getMap() orelse return ParseError.InvalidYaml;
 
-    const command_template_val = table_map.get("command") orelse return ParseError.MissingRequiredField;
+    const command_template_val = table_map.get("command") orelse
+        return ParseError.MissingRequiredField;
     const command_template = command_template_val.getString() orelse return ParseError.InvalidYaml;
     const args_template = if (table_map.get("args")) |v| try parseArgsList(allocator, v) else null;
-    defer if (args_template) |args| deinitStringList(allocator, args);
-
     const cases_val = table_map.get("cases") orelse return ParseError.MissingRequiredField;
     const cases = cases_val.getList() orelse return ParseError.InvalidYaml;
-    if (cases.len == 0) return null;
+    if (cases.len == 0) {
+        if (args_template) |args| deinitStringList(allocator, args);
+        return null;
+    }
+    return .{
+        .command_template = command_template,
+        .args_template = args_template,
+        .cases = cases,
+    };
+}
 
-    var steps = allocator.alloc(spec_mod.Step, cases.len) catch return ParseError.OutOfMemory;
+fn buildCaseName(
+    allocator: Allocator,
+    case_map: *std.StringHashMap(YamlValue),
+    idx: usize,
+) ParseError![]const u8 {
+    if (case_map.get("name")) |n| {
+        return allocator.dupe(u8, n.getString() orelse return ParseError.InvalidYaml) catch
+            return ParseError.OutOfMemory;
+    }
+
+    var name_buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer name_buf.deinit(allocator);
+
+    var case_iter = case_map.iterator();
+    var found_var = false;
+    while (case_iter.next()) |entry| {
+        if (isReservedKey(entry.key_ptr.*)) continue;
+        if (found_var) {
+            name_buf.appendSlice(allocator, ", ") catch return ParseError.OutOfMemory;
+        }
+        if (entry.value_ptr.getString()) |s| {
+            name_buf.appendSlice(allocator, s) catch return ParseError.OutOfMemory;
+        } else if (entry.value_ptr.getInt()) |int_val| {
+            const s = std.fmt.allocPrint(allocator, "{d}", .{int_val}) catch
+                return ParseError.OutOfMemory;
+            defer allocator.free(s);
+            name_buf.appendSlice(allocator, s) catch return ParseError.OutOfMemory;
+        }
+        found_var = true;
+    }
+    if (name_buf.items.len == 0) {
+        return std.fmt.allocPrint(allocator, "case {d}", .{idx + 1}) catch
+            return ParseError.OutOfMemory;
+    }
+    return allocator.dupe(u8, name_buf.items) catch return ParseError.OutOfMemory;
+}
+
+fn parseCaseArgs(
+    allocator: Allocator,
+    case_map: *std.StringHashMap(YamlValue),
+    args_template: ?[]const []const u8,
+) ParseError!?[]const []const u8 {
+    const case_args_raw = if (case_map.get("args")) |v|
+        try parseArgsList(allocator, v)
+    else
+        null;
+    defer if (case_args_raw) |args| deinitStringList(allocator, args);
+
+    const raw_args = case_args_raw orelse args_template;
+    if (raw_args) |args| return try expandStringList(allocator, args, case_map);
+    return null;
+}
+
+fn parseExpandedInputFields(
+    allocator: Allocator,
+    case_map: *std.StringHashMap(YamlValue),
+) ParseError!InputFields {
+    const input = if (case_map.get("input")) |v| blk: {
+        const raw = v.getString() orelse return ParseError.InvalidYaml;
+        break :blk try expandTemplate(allocator, raw, case_map);
+    } else null;
+
+    const input_lines = if (case_map.get("input_lines")) |v|
+        try expandInputLines(
+            allocator,
+            (try parseInputLines(allocator, v)) orelse return ParseError.InvalidYaml,
+            case_map,
+        )
+    else
+        null;
+
+    if (input != null and input_lines != null) {
+        if (input) |value| allocator.free(value);
+        if (input_lines) |lines| lines.deinit(allocator);
+        return ParseError.InvalidYaml;
+    }
+    return .{ .input = input, .input_lines = input_lines };
+}
+
+fn buildTestTableStep(
+    allocator: Allocator,
+    config: TestTableConfig,
+    case_item: YamlValue,
+    idx: usize,
+) ParseError!spec_mod.Step {
+    var case_copy = case_item;
+    const case_map = case_copy.getMap() orelse return ParseError.InvalidYaml;
+
+    const step_name = try buildCaseName(allocator, case_map, idx);
+    errdefer allocator.free(step_name);
+    const command = try expandTemplate(allocator, config.command_template, case_map);
+    errdefer allocator.free(command);
+    const args = try parseCaseArgs(allocator, case_map, config.args_template);
+    errdefer if (args) |items| deinitStringList(allocator, items);
+    const input_fields = try parseExpandedInputFields(allocator, case_map);
+    errdefer {
+        if (input_fields.input) |value| allocator.free(value);
+        if (input_fields.input_lines) |lines| lines.deinit(allocator);
+    }
+    const assertions = try parseAssertionFields(allocator, case_map);
+    errdefer deinitAssertionLists(allocator, assertions);
+
+    return .{
+        .name = step_name,
+        .test_case = .{
+            .command = command,
+            .args = args,
+            .input = input_fields.input,
+            .input_lines = input_fields.input_lines,
+            .expect_output = try dupOptionalString(allocator, assertions.expect_output),
+            .expect_output_contains = assertions.expect_output_contains,
+            .expect_output_not_contains = assertions.expect_output_not_contains,
+            .expect_output_regex = try dupOptionalString(allocator, assertions.expect_output_regex),
+            .expect_stderr = try dupOptionalString(allocator, assertions.expect_stderr),
+            .expect_stderr_contains = assertions.expect_stderr_contains,
+            .expect_stderr_not_contains = assertions.expect_stderr_not_contains,
+            .expect_stderr_regex = try dupOptionalString(allocator, assertions.expect_stderr_regex),
+            .expect_exit_code = assertions.expect_exit_code,
+        },
+    };
+}
+
+fn parseTestTable(
+    allocator: Allocator,
+    map: *std.StringHashMap(YamlValue),
+) ParseError!?[]const spec_mod.Step {
+    const config = (try parseTestTableConfig(allocator, map)) orelse return null;
+    defer if (config.args_template) |args| deinitStringList(allocator, args);
+
+    var steps = allocator.alloc(spec_mod.Step, config.cases.len) catch
+        return ParseError.OutOfMemory;
     errdefer allocator.free(steps);
 
-    for (cases, 0..) |case_item, idx| {
-        var case_copy = case_item;
-        var case_map = case_copy.getMap() orelse return ParseError.InvalidYaml;
-
-        // Build step name
-        const step_name = if (case_map.get("name")) |n|
-            allocator.dupe(u8, n.getString() orelse return ParseError.InvalidYaml) catch return ParseError.OutOfMemory
-        else blk: {
-            // Auto-generate name from first template variable value
-            var name_buf: std.ArrayListUnmanaged(u8) = .empty;
-            var case_iter = case_map.iterator();
-            var found_var = false;
-            while (case_iter.next()) |entry| {
-                if (!isReservedKey(entry.key_ptr.*)) {
-                    if (found_var) {
-                        name_buf.appendSlice(allocator, ", ") catch return ParseError.OutOfMemory;
-                    }
-                    if (entry.value_ptr.getString()) |s| {
-                        name_buf.appendSlice(allocator, s) catch return ParseError.OutOfMemory;
-                    } else if (entry.value_ptr.getInt()) |int_val| {
-                        const s = std.fmt.allocPrint(allocator, "{d}", .{int_val}) catch return ParseError.OutOfMemory;
-                        name_buf.appendSlice(allocator, s) catch return ParseError.OutOfMemory;
-                        allocator.free(s);
-                    }
-                    found_var = true;
-                }
-            }
-            if (name_buf.items.len == 0) {
-                const s = std.fmt.allocPrint(allocator, "case {d}", .{idx + 1}) catch return ParseError.OutOfMemory;
-                break :blk s;
-            }
-            break :blk name_buf.toOwnedSlice(allocator) catch return ParseError.OutOfMemory;
-        };
-
-        // Expand command template
-        const expanded_command = try expandTemplate(allocator, command_template, case_map);
-        const case_args_raw = if (case_map.get("args")) |v| try parseArgsList(allocator, v) else null;
-        defer if (case_args_raw) |args| deinitStringList(allocator, args);
-        const raw_args = case_args_raw orelse args_template;
-        const expanded_args = if (raw_args) |args|
-            try expandStringList(allocator, args, case_map)
-        else
-            null;
-
-        // Extract input and input_lines from the case
-        const case_input = if (case_map.get("input")) |v| blk: {
-            const raw = v.getString() orelse return ParseError.InvalidYaml;
-            break :blk try expandTemplate(allocator, raw, case_map);
-        } else null;
-        errdefer if (case_input) |input| allocator.free(input);
-
-        const case_input_lines = if (case_map.get("input_lines")) |v|
-            try expandInputLines(allocator, (try parseInputLines(allocator, v)) orelse return ParseError.InvalidYaml, case_map)
-        else
-            null;
-
-        // Exclusive check
-        if (case_input != null and case_input_lines != null) {
-            if (case_input) |input| allocator.free(input);
-            if (case_input_lines) |il| il.deinit(allocator);
-            return ParseError.InvalidYaml;
-        }
-
-        // Extract assertions from the case
-        const expect_output = if (case_map.get("expect_output")) |v| v.getString() else null;
-        const expect_output_contains = if (case_map.get("expect_output_contains")) |v| try parseStringOrList(allocator, v) else null;
-        const expect_output_not_contains = if (case_map.get("expect_output_not_contains")) |v| try parseStringOrList(allocator, v) else null;
-        const expect_output_regex = if (case_map.get("expect_output_regex")) |v| v.getString() else null;
-        const expect_stderr = if (case_map.get("expect_stderr")) |v| v.getString() else null;
-        const expect_stderr_contains = if (case_map.get("expect_stderr_contains")) |v| try parseStringOrList(allocator, v) else null;
-        const expect_stderr_not_contains = if (case_map.get("expect_stderr_not_contains")) |v| try parseStringOrList(allocator, v) else null;
-        const expect_stderr_regex = if (case_map.get("expect_stderr_regex")) |v| v.getString() else null;
-        const expect_exit_code: i32 = if (case_map.get("expect_exit_code")) |v|
-            @intCast(v.getInt() orelse 0)
-        else
-            0;
-
-        steps[idx] = .{
-            .name = step_name,
-            .test_case = .{
-                .command = expanded_command,
-                .args = expanded_args,
-                .input = case_input,
-                .input_lines = case_input_lines,
-                .expect_output = if (expect_output) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_output_contains = expect_output_contains,
-                .expect_output_not_contains = expect_output_not_contains,
-                .expect_output_regex = if (expect_output_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_stderr = if (expect_stderr) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_stderr_contains = expect_stderr_contains,
-                .expect_stderr_not_contains = expect_stderr_not_contains,
-                .expect_stderr_regex = if (expect_stderr_regex) |o| allocator.dupe(u8, o) catch return ParseError.OutOfMemory else null,
-                .expect_exit_code = expect_exit_code,
-            },
-        };
+    for (config.cases, 0..) |case_item, idx| {
+        steps[idx] = try buildTestTableStep(allocator, config, case_item, idx);
     }
 
     return steps;
+}
+
+fn parseVarsMapPtr(map: *std.StringHashMap(YamlValue)) ?*std.StringHashMap(YamlValue) {
+    const vars_ptr = map.getPtr("vars") orelse return null;
+    return vars_ptr.getMap();
+}
+
+fn expandSetupAndTeardown(
+    allocator: Allocator,
+    setup: ?[]const SetupCommand,
+    teardown: ?[]const TeardownCommand,
+    vars_map: *std.StringHashMap(YamlValue),
+) ParseError!void {
+    if (setup) |setup_cmds| {
+        for (setup_cmds) |*cmd| {
+            const expanded = try expandTemplate(allocator, cmd.run, vars_map);
+            allocator.free(@constCast(cmd).run);
+            @constCast(cmd).run = expanded;
+        }
+    }
+    if (teardown) |teardown_cmds| {
+        for (teardown_cmds) |*cmd| {
+            switch (cmd.*) {
+                .run => |run_cmd| {
+                    const expanded = try expandTemplate(allocator, run_cmd, vars_map);
+                    allocator.free(run_cmd);
+                    @constCast(cmd).* = .{ .run = expanded };
+                },
+                .kill_process => {},
+            }
+        }
+    }
+}
+
+fn expandStepsWithVars(
+    allocator: Allocator,
+    steps: []const spec_mod.Step,
+    vars_map: *std.StringHashMap(YamlValue),
+) ParseError!void {
+    for (steps) |*step| {
+        const expanded = try expandTemplate(allocator, step.test_case.command, vars_map);
+        allocator.free(@constCast(step).test_case.command);
+        @constCast(step).test_case.command = expanded;
+        if (step.test_case.args) |args| {
+            const expanded_args = try expandStringList(allocator, args, vars_map);
+            deinitStringList(allocator, args);
+            @constCast(step).test_case.args = expanded_args;
+        }
+    }
+}
+
+fn expandTestCaseWithVars(
+    allocator: Allocator,
+    test_case: *TestCase,
+    vars_map: *std.StringHashMap(YamlValue),
+) ParseError!void {
+    const expanded = try expandTemplate(allocator, test_case.command, vars_map);
+    allocator.free(test_case.command);
+    test_case.command = expanded;
+    if (test_case.args) |args| {
+        const expanded_args = try expandStringList(allocator, args, vars_map);
+        deinitStringList(allocator, args);
+        test_case.args = expanded_args;
+    }
+}
+
+fn buildSpecWithSteps(
+    allocator: Allocator,
+    name: []const u8,
+    description: ?[]const u8,
+    setup: ?[]const SetupCommand,
+    steps: []const spec_mod.Step,
+    teardown: ?[]const TeardownCommand,
+) ParseError!Spec {
+    return Spec{
+        .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
+        .description = try dupOptionalString(allocator, description),
+        .setup = setup,
+        .steps = steps,
+        .teardown = teardown,
+    };
+}
+
+fn buildSpecWithTestCase(
+    allocator: Allocator,
+    name: []const u8,
+    description: ?[]const u8,
+    setup: ?[]const SetupCommand,
+    test_case: TestCase,
+    teardown: ?[]const TeardownCommand,
+) ParseError!Spec {
+    return Spec{
+        .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
+        .description = try dupOptionalString(allocator, description),
+        .setup = setup,
+        .test_case = test_case,
+        .teardown = teardown,
+    };
+}
+
+fn parseRootTestCase(
+    allocator: Allocator,
+    map: *std.StringHashMap(YamlValue),
+) ParseError!TestCase {
+    const test_val = map.get("test_case") orelse
+        map.get("test") orelse
+        return ParseError.MissingRequiredField;
+    const test_map = blk: {
+        var tv = test_val;
+        break :blk tv.getMap() orelse return ParseError.InvalidYaml;
+    };
+    return parseTestCaseFromMap(allocator, test_map);
 }
 
 pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
@@ -1042,117 +1294,33 @@ pub fn parseSpec(allocator: Allocator, source: []const u8) ParseError!Spec {
     defer yaml.deinit(allocator);
 
     var map = yaml.getMap() orelse return ParseError.InvalidYaml;
-
     const name_val = map.get("name") orelse return ParseError.MissingRequiredField;
     const name = name_val.getString() orelse return ParseError.InvalidYaml;
     const description = if (map.get("description")) |desc_val| desc_val.getString() else null;
-
-    // Parse optional vars for template expansion
-    const vars_map_ptr = blk: {
-        const vars_ptr = map.getPtr("vars") orelse break :blk @as(?*std.StringHashMap(YamlValue), null);
-        break :blk vars_ptr.getMap();
-    };
+    const vars_map_ptr = parseVarsMapPtr(map);
 
     const setup = try parseSetupCommands(allocator, map);
     const teardown = try parseTeardownCommands(allocator, map);
     const steps = try parseSteps(allocator, map);
 
-    // Expand vars in setup and teardown commands
     if (vars_map_ptr) |vars_map| {
-        if (setup) |setup_cmds| {
-            for (setup_cmds) |*cmd| {
-                const expanded = try expandTemplate(allocator, cmd.run, vars_map);
-                allocator.free(@constCast(cmd).run);
-                @constCast(cmd).run = expanded;
-            }
-        }
-        if (teardown) |teardown_cmds| {
-            for (teardown_cmds) |*cmd| {
-                switch (cmd.*) {
-                    .run => |run_cmd| {
-                        const expanded = try expandTemplate(allocator, run_cmd, vars_map);
-                        allocator.free(run_cmd);
-                        @constCast(cmd).* = .{ .run = expanded };
-                    },
-                    .kill_process => {},
-                }
-            }
-        }
+        try expandSetupAndTeardown(allocator, setup, teardown, vars_map);
     }
 
-    // steps and test are mutually exclusive
     if (steps) |steps_list| {
-        if (vars_map_ptr) |vars_map| {
-            for (steps_list) |*step| {
-                const expanded = try expandTemplate(allocator, step.test_case.command, vars_map);
-                allocator.free(@constCast(step).test_case.command);
-                @constCast(step).test_case.command = expanded;
-                if (step.test_case.args) |args| {
-                    const expanded_args = try expandStringList(allocator, args, vars_map);
-                    deinitStringList(allocator, args);
-                    @constCast(step).test_case.args = expanded_args;
-                }
-            }
-        }
-        return Spec{
-            .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
-            .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
-            .setup = setup,
-            .steps = steps_list,
-            .teardown = teardown,
-        };
+        if (vars_map_ptr) |vars_map| try expandStepsWithVars(allocator, steps_list, vars_map);
+        return buildSpecWithSteps(allocator, name, description, setup, steps_list, teardown);
     }
 
-    // test_table expands to steps
     const table_steps = try parseTestTable(allocator, map);
     if (table_steps) |tbl_steps| {
-        if (vars_map_ptr) |vars_map| {
-            for (tbl_steps) |*step| {
-                const expanded = try expandTemplate(allocator, step.test_case.command, vars_map);
-                allocator.free(@constCast(step).test_case.command);
-                @constCast(step).test_case.command = expanded;
-                if (step.test_case.args) |args| {
-                    const expanded_args = try expandStringList(allocator, args, vars_map);
-                    deinitStringList(allocator, args);
-                    @constCast(step).test_case.args = expanded_args;
-                }
-            }
-        }
-        return Spec{
-            .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
-            .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
-            .setup = setup,
-            .steps = tbl_steps,
-            .teardown = teardown,
-        };
+        if (vars_map_ptr) |vars_map| try expandStepsWithVars(allocator, tbl_steps, vars_map);
+        return buildSpecWithSteps(allocator, name, description, setup, tbl_steps, teardown);
     }
 
-    const test_val = map.get("test_case") orelse map.get("test") orelse return ParseError.MissingRequiredField;
-    const test_map = blk: {
-        var tv = test_val;
-        break :blk tv.getMap() orelse return ParseError.InvalidYaml;
-    };
-
-    var test_case = try parseTestCaseFromMap(allocator, test_map);
-
-    if (vars_map_ptr) |vars_map| {
-        const expanded = try expandTemplate(allocator, test_case.command, vars_map);
-        allocator.free(test_case.command);
-        test_case.command = expanded;
-        if (test_case.args) |args| {
-            const expanded_args = try expandStringList(allocator, args, vars_map);
-            deinitStringList(allocator, args);
-            test_case.args = expanded_args;
-        }
-    }
-
-    return Spec{
-        .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
-        .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
-        .setup = setup,
-        .test_case = test_case,
-        .teardown = teardown,
-    };
+    var test_case = try parseRootTestCase(allocator, map);
+    if (vars_map_ptr) |vars_map| try expandTestCaseWithVars(allocator, &test_case, vars_map);
+    return buildSpecWithTestCase(allocator, name, description, setup, test_case, teardown);
 }
 
 pub fn parseSpecFromFile(allocator: Allocator, path: []const u8) !Spec {
@@ -1207,7 +1375,8 @@ pub fn parseProjectSpec(allocator: Allocator, source: []const u8) ParseError!Pro
     var include: []const []const u8 = &.{};
     if (map.get("include")) |include_val| {
         if (include_val.getList()) |list| {
-            var include_arr = allocator.alloc([]const u8, list.len) catch return ParseError.OutOfMemory;
+            var include_arr = allocator.alloc([]const u8, list.len) catch
+                return ParseError.OutOfMemory;
             errdefer allocator.free(include_arr);
 
             for (list, 0..) |item, i| {
@@ -1223,7 +1392,10 @@ pub fn parseProjectSpec(allocator: Allocator, source: []const u8) ParseError!Pro
 
     return ProjectSpec{
         .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
-        .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
+        .description = if (description) |d|
+            allocator.dupe(u8, d) catch return ParseError.OutOfMemory
+        else
+            null,
         .specs = specs,
         .include = include,
     };
@@ -1244,7 +1416,10 @@ fn parseSpecFromYamlValue(allocator: Allocator, yaml_val: YamlValue) ParseError!
     if (steps != null) {
         return Spec{
             .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
-            .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
+            .description = if (description) |d|
+                allocator.dupe(u8, d) catch return ParseError.OutOfMemory
+            else
+                null,
             .setup = setup,
             .steps = steps,
             .teardown = teardown,
@@ -1255,14 +1430,19 @@ fn parseSpecFromYamlValue(allocator: Allocator, yaml_val: YamlValue) ParseError!
     if (table_steps != null) {
         return Spec{
             .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
-            .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
+            .description = if (description) |d|
+                allocator.dupe(u8, d) catch return ParseError.OutOfMemory
+            else
+                null,
             .setup = setup,
             .steps = table_steps,
             .teardown = teardown,
         };
     }
 
-    const test_val = map.get("test_case") orelse map.get("test") orelse return ParseError.MissingRequiredField;
+    const test_val = map.get("test_case") orelse
+        map.get("test") orelse
+        return ParseError.MissingRequiredField;
     const test_map = blk: {
         var tv = test_val;
         break :blk tv.getMap() orelse return ParseError.InvalidYaml;
@@ -1272,7 +1452,10 @@ fn parseSpecFromYamlValue(allocator: Allocator, yaml_val: YamlValue) ParseError!
 
     return Spec{
         .name = allocator.dupe(u8, name) catch return ParseError.OutOfMemory,
-        .description = if (description) |d| allocator.dupe(u8, d) catch return ParseError.OutOfMemory else null,
+        .description = if (description) |d|
+            allocator.dupe(u8, d) catch return ParseError.OutOfMemory
+        else
+            null,
         .setup = setup,
         .test_case = test_case,
         .teardown = teardown,

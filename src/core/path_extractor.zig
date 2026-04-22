@@ -7,78 +7,43 @@ const Allocator = std.mem.Allocator;
 /// Returns the extracted path or null if no path could be determined.
 pub fn extractTestPath(allocator: Allocator, command: []const u8) !?[]const u8 {
     // Skip leading whitespace
-    var cmd = std.mem.trim(u8, command, " \t");
+    const cmd = std.mem.trim(u8, command, " \t");
 
-    // Try various patterns
-
-    // npm test -- <path>
-    if (std.mem.indexOf(u8, cmd, "npm test")) |_| {
+    if (std.mem.indexOf(u8, cmd, "npm test") != null) {
         if (std.mem.indexOf(u8, cmd, "-- ")) |idx| {
-            const after_dashes = std.mem.trim(u8, cmd[idx + 3 ..], " \t");
-            if (after_dashes.len > 0) {
-                return try extractPathFromArg(allocator, after_dashes);
-            }
+            if (try extractPathFromSuffix(allocator, cmd[idx + 3 ..])) |path| return path;
         }
     }
-
-    // npx jest <path>
-    if (std.mem.indexOf(u8, cmd, "npx jest")) |idx| {
-        const after_jest = std.mem.trim(u8, cmd[idx + 8 ..], " \t");
-        if (after_jest.len > 0) {
-            return try extractPathFromArg(allocator, after_jest);
-        }
-    }
-
-    // jest <path>
+    if (try extractAfterContains(allocator, cmd, "npx jest", 8)) |path| return path;
     if (std.mem.startsWith(u8, cmd, "jest ")) {
-        const after_jest = std.mem.trim(u8, cmd[5..], " \t");
-        if (after_jest.len > 0) {
-            return try extractPathFromArg(allocator, after_jest);
-        }
+        if (try extractPathFromSuffix(allocator, cmd[5..])) |path| return path;
     }
-
-    // pytest <path>
-    if (std.mem.indexOf(u8, cmd, "pytest")) |idx| {
-        const after_pytest = std.mem.trim(u8, cmd[idx + 6 ..], " \t");
-        if (after_pytest.len > 0) {
-            return try extractPathFromArg(allocator, after_pytest);
-        }
-    }
-
-    // python -m pytest <path>
-    if (std.mem.indexOf(u8, cmd, "python -m pytest")) |idx| {
-        const after_pytest = std.mem.trim(u8, cmd[idx + 16 ..], " \t");
-        if (after_pytest.len > 0) {
-            return try extractPathFromArg(allocator, after_pytest);
-        }
-    }
-
-    // go test <path>
-    if (std.mem.indexOf(u8, cmd, "go test")) |idx| {
-        const after_gotest = std.mem.trim(u8, cmd[idx + 7 ..], " \t");
-        if (after_gotest.len > 0) {
-            return try extractPathFromArg(allocator, after_gotest);
-        }
-    }
-
-    // cargo test <path>
-    if (std.mem.indexOf(u8, cmd, "cargo test")) |idx| {
-        const after_cargo = std.mem.trim(u8, cmd[idx + 10 ..], " \t");
-        if (after_cargo.len > 0) {
-            return try extractPathFromArg(allocator, after_cargo);
-        }
-    }
-
-    // zig test <path>
-    if (std.mem.indexOf(u8, cmd, "zig test")) |idx| {
-        const after_zig = std.mem.trim(u8, cmd[idx + 8 ..], " \t");
-        if (after_zig.len > 0) {
-            return try extractPathFromArg(allocator, after_zig);
-        }
-    }
+    if (try extractAfterContains(allocator, cmd, "pytest", 6)) |path| return path;
+    if (try extractAfterContains(allocator, cmd, "python -m pytest", 16)) |path| return path;
+    if (try extractAfterContains(allocator, cmd, "go test", 7)) |path| return path;
+    if (try extractAfterContains(allocator, cmd, "cargo test", 10)) |path| return path;
+    if (try extractAfterContains(allocator, cmd, "zig test", 8)) |path| return path;
 
     // Look for common test file extensions
     return try findTestFilePath(allocator, cmd);
+}
+
+fn extractAfterContains(
+    allocator: Allocator,
+    cmd: []const u8,
+    marker: []const u8,
+    offset: usize,
+) !?[]const u8 {
+    if (std.mem.indexOf(u8, cmd, marker)) |idx| {
+        return try extractPathFromSuffix(allocator, cmd[idx + offset ..]);
+    }
+    return null;
+}
+
+fn extractPathFromSuffix(allocator: Allocator, suffix: []const u8) !?[]const u8 {
+    const trimmed = std.mem.trim(u8, suffix, " \t");
+    if (trimmed.len == 0) return null;
+    return try extractPathFromArg(allocator, trimmed);
 }
 
 /// Extracts the first path-like argument from a string.
@@ -226,7 +191,10 @@ test "extractTestPath - zig test" {
 }
 
 test "detectFramework" {
-    try std.testing.expectEqualStrings("jest", detectFramework("npm test -- tests/login.test.ts").?);
+    try std.testing.expectEqualStrings(
+        "jest",
+        detectFramework("npm test -- tests/login.test.ts").?,
+    );
     try std.testing.expectEqualStrings("pytest", detectFramework("pytest tests/test_login.py").?);
     try std.testing.expectEqualStrings("go-test", detectFramework("go test ./pkg/auth").?);
     try std.testing.expectEqualStrings("zig-test", detectFramework("zig test src/main.zig").?);

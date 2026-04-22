@@ -65,143 +65,161 @@ pub const ParseError = error{
     InvalidOption,
 };
 
+const ParseState = struct {
+    verbose: bool = false,
+    json_output: bool = false,
+    junit_output: bool = false,
+    fail_fast: bool = false,
+    dry_run: bool = false,
+    with_setup: bool = false,
+    markdown: bool = false,
+    template: TemplateType = .basic,
+    filter: ?[]const u8 = null,
+    max_jobs: usize = 1,
+    timeout_ms: ?u64 = null,
+    positional: ?[]const u8 = null,
+};
+
 pub fn parseArgs(args: []const []const u8) ParseError!Command {
     if (args.len < 2) {
         return ParseError.MissingCommand;
     }
 
     const cmd = args[1];
-    var verbose = false;
-    var json_output = false;
-    var junit_output = false;
-    var fail_fast = false;
-    var dry_run = false;
-    var with_setup = false;
-    var markdown = false;
-    var template: TemplateType = .basic;
-    var filter: ?[]const u8 = null;
-    var max_jobs: usize = 1;
-    var timeout_ms: ?u64 = null;
-    var positional: ?[]const u8 = null;
+    var state: ParseState = .{};
 
     // Parse options and positional args
     var i: usize = 2;
     while (i < args.len) : (i += 1) {
-        const arg = args[i];
-        if (std.mem.eql(u8, arg, "--verbose") or std.mem.eql(u8, arg, "-v")) {
-            verbose = true;
-        } else if (std.mem.eql(u8, arg, "--json")) {
-            json_output = true;
-        } else if (std.mem.eql(u8, arg, "--junit")) {
-            junit_output = true;
-        } else if (std.mem.eql(u8, arg, "--fail-fast")) {
-            fail_fast = true;
-        } else if (std.mem.eql(u8, arg, "--dry-run")) {
-            dry_run = true;
-        } else if (std.mem.eql(u8, arg, "--with-setup")) {
-            with_setup = true;
-        } else if (std.mem.eql(u8, arg, "--markdown")) {
-            markdown = true;
-        } else if (std.mem.eql(u8, arg, "--template")) {
-            i += 1;
-            if (i >= args.len) return ParseError.MissingArgument;
-            template = parseTemplateType(args[i]) orelse return ParseError.InvalidOption;
-        } else if (std.mem.startsWith(u8, arg, "--template=")) {
-            template = parseTemplateType(arg["--template=".len..]) orelse return ParseError.InvalidOption;
-        } else if (std.mem.eql(u8, arg, "--filter")) {
-            i += 1;
-            if (i >= args.len) return ParseError.MissingArgument;
-            filter = args[i];
-        } else if (std.mem.startsWith(u8, arg, "--filter=")) {
-            filter = arg["--filter=".len..];
-        } else if (std.mem.eql(u8, arg, "-j")) {
-            i += 1;
-            if (i >= args.len) return ParseError.MissingArgument;
-            max_jobs = std.fmt.parseInt(usize, args[i], 10) catch return ParseError.InvalidOption;
-        } else if (std.mem.startsWith(u8, arg, "-j")) {
-            max_jobs = std.fmt.parseInt(usize, arg[2..], 10) catch return ParseError.InvalidOption;
-        } else if (std.mem.eql(u8, arg, "--timeout-ms")) {
-            i += 1;
-            if (i >= args.len) return ParseError.MissingArgument;
-            timeout_ms = std.fmt.parseInt(u64, args[i], 10) catch return ParseError.InvalidOption;
-        } else if (std.mem.startsWith(u8, arg, "--timeout-ms=")) {
-            timeout_ms = std.fmt.parseInt(u64, arg["--timeout-ms=".len..], 10) catch return ParseError.InvalidOption;
-        } else if (!std.mem.startsWith(u8, arg, "-")) {
-            if (positional == null) positional = arg;
-        }
+        try parseArgToken(args, &i, &state);
     }
 
+    return commandFromState(cmd, &state);
+}
+
+fn parseArgToken(args: []const []const u8, i: *usize, state: *ParseState) ParseError!void {
+    const arg = args[i.*];
+    if (std.mem.eql(u8, arg, "--verbose") or std.mem.eql(u8, arg, "-v")) {
+        state.verbose = true;
+    } else if (std.mem.eql(u8, arg, "--json")) {
+        state.json_output = true;
+    } else if (std.mem.eql(u8, arg, "--junit")) {
+        state.junit_output = true;
+    } else if (std.mem.eql(u8, arg, "--fail-fast")) {
+        state.fail_fast = true;
+    } else if (std.mem.eql(u8, arg, "--dry-run")) {
+        state.dry_run = true;
+    } else if (std.mem.eql(u8, arg, "--with-setup")) {
+        state.with_setup = true;
+    } else if (std.mem.eql(u8, arg, "--markdown")) {
+        state.markdown = true;
+    } else if (std.mem.eql(u8, arg, "--template")) {
+        i.* += 1;
+        if (i.* >= args.len) return ParseError.MissingArgument;
+        state.template = parseTemplateType(args[i.*]) orelse return ParseError.InvalidOption;
+    } else if (std.mem.startsWith(u8, arg, "--template=")) {
+        state.template = parseTemplateType(arg["--template=".len..]) orelse
+            return ParseError.InvalidOption;
+    } else if (std.mem.eql(u8, arg, "--filter")) {
+        i.* += 1;
+        if (i.* >= args.len) return ParseError.MissingArgument;
+        state.filter = args[i.*];
+    } else if (std.mem.startsWith(u8, arg, "--filter=")) {
+        state.filter = arg["--filter=".len..];
+    } else if (std.mem.eql(u8, arg, "-j")) {
+        i.* += 1;
+        if (i.* >= args.len) return ParseError.MissingArgument;
+        state.max_jobs = std.fmt.parseInt(usize, args[i.*], 10) catch
+            return ParseError.InvalidOption;
+    } else if (std.mem.startsWith(u8, arg, "-j")) {
+        state.max_jobs = std.fmt.parseInt(usize, arg[2..], 10) catch
+            return ParseError.InvalidOption;
+    } else if (std.mem.eql(u8, arg, "--timeout-ms")) {
+        i.* += 1;
+        if (i.* >= args.len) return ParseError.MissingArgument;
+        state.timeout_ms = std.fmt.parseInt(u64, args[i.*], 10) catch
+            return ParseError.InvalidOption;
+    } else if (std.mem.startsWith(u8, arg, "--timeout-ms=")) {
+        state.timeout_ms = std.fmt.parseInt(u64, arg["--timeout-ms=".len..], 10) catch
+            return ParseError.InvalidOption;
+    } else if (!std.mem.startsWith(u8, arg, "-")) {
+        if (state.positional == null) state.positional = arg;
+    }
+}
+
+fn commandFromState(cmd: []const u8, state: *const ParseState) ParseError!Command {
     if (std.mem.eql(u8, cmd, "run")) {
-        if (positional == null) {
-            return ParseError.MissingArgument;
-        }
         return Command{
             .run = .{
-                .spec_path = positional.?,
-                .verbose = verbose,
-                .json_output = json_output,
-                .junit_output = junit_output,
-                .fail_fast = fail_fast,
-                .dry_run = dry_run,
-                .filter = filter,
-                .timeout_ms = timeout_ms,
-                .max_jobs = max_jobs,
+                .spec_path = try requirePositional(state.positional),
+                .verbose = state.verbose,
+                .json_output = state.json_output,
+                .junit_output = state.junit_output,
+                .fail_fast = state.fail_fast,
+                .dry_run = state.dry_run,
+                .filter = state.filter,
+                .timeout_ms = state.timeout_ms,
+                .max_jobs = state.max_jobs,
             },
         };
     } else if (std.mem.eql(u8, cmd, "run-dir")) {
-        if (positional == null) {
-            return ParseError.MissingArgument;
-        }
         return Command{
             .run_dir = .{
-                .dir_path = positional.?,
-                .verbose = verbose,
-                .json_output = json_output,
-                .junit_output = junit_output,
-                .fail_fast = fail_fast,
-                .dry_run = dry_run,
-                .filter = filter,
-                .max_jobs = max_jobs,
-                .timeout_ms = timeout_ms,
+                .dir_path = try requirePositional(state.positional),
+                .verbose = state.verbose,
+                .json_output = state.json_output,
+                .junit_output = state.junit_output,
+                .fail_fast = state.fail_fast,
+                .dry_run = state.dry_run,
+                .filter = state.filter,
+                .max_jobs = state.max_jobs,
+                .timeout_ms = state.timeout_ms,
             },
         };
     } else if (std.mem.eql(u8, cmd, "init")) {
-        const effective_template = if (with_setup and template == .basic) TemplateType.setup else template;
+        const effective_template = if (state.with_setup and state.template == .basic)
+            TemplateType.setup
+        else
+            state.template;
         return Command{
             .init_cmd = .{
-                .output_path = positional,
-                .with_setup = with_setup,
+                .output_path = state.positional,
+                .with_setup = state.with_setup,
                 .template = effective_template,
             },
         };
     } else if (std.mem.eql(u8, cmd, "validate")) {
-        if (positional == null) {
-            return ParseError.MissingArgument;
-        }
         return Command{
             .validate_cmd = .{
-                .spec_path = positional.?,
+                .spec_path = try requirePositional(state.positional),
             },
         };
     } else if (std.mem.eql(u8, cmd, "list")) {
-        if (positional == null) {
-            return ParseError.MissingArgument;
-        }
         return Command{
             .list_cmd = .{
-                .dir_path = positional.?,
-                .markdown = markdown,
+                .dir_path = try requirePositional(state.positional),
+                .markdown = state.markdown,
             },
         };
     } else if (std.mem.eql(u8, cmd, "schema")) {
         return Command.schema;
-    } else if (std.mem.eql(u8, cmd, "version") or std.mem.eql(u8, cmd, "--version") or std.mem.eql(u8, cmd, "-V")) {
+    } else if (std.mem.eql(u8, cmd, "version") or
+        std.mem.eql(u8, cmd, "--version") or
+        std.mem.eql(u8, cmd, "-V"))
+    {
         return Command.version;
-    } else if (std.mem.eql(u8, cmd, "help") or std.mem.eql(u8, cmd, "--help") or std.mem.eql(u8, cmd, "-h")) {
+    } else if (std.mem.eql(u8, cmd, "help") or
+        std.mem.eql(u8, cmd, "--help") or
+        std.mem.eql(u8, cmd, "-h"))
+    {
         return Command.help;
     }
 
     return ParseError.UnknownCommand;
+}
+
+fn requirePositional(positional: ?[]const u8) ParseError![]const u8 {
+    return positional orelse ParseError.MissingArgument;
 }
 
 fn parseTemplateType(s: []const u8) ?TemplateType {
@@ -317,7 +335,16 @@ test "parse run command with filter" {
 }
 
 test "parse run-dir with filter and parallel" {
-    const args = [_][]const u8{ "induct", "run-dir", "--filter", "echo", "-j", "4", "--fail-fast", "specs/" };
+    const args = [_][]const u8{
+        "induct",
+        "run-dir",
+        "--filter",
+        "echo",
+        "-j",
+        "4",
+        "--fail-fast",
+        "specs/",
+    };
     const result = try parseArgs(&args);
 
     switch (result) {
