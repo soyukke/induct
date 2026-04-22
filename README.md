@@ -36,6 +36,21 @@ zig build
 nix develop -c zig build
 ```
 
+### pre-commit でローカルチェック
+
+このリポジトリには `.pre-commit-config.yaml` があり、コミット時に以下を実行する。
+
+- `zig fmt --check src`
+- `zig run scripts/check_style.zig -- --root src --strict`
+
+初回セットアップ:
+
+```bash
+pipx install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+
 ## Quick Start
 
 ```bash
